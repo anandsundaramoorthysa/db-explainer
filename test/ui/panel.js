@@ -39,6 +39,8 @@ async function launch() {
   const settle = () => page.waitForTimeout(80);
 
   assert.deepStrictEqual((await sent())[0], { type: 'ready' });
+  assert.ok(/Hi, I'm Dex/.test(await page.textContent('.welcome')), 'welcome message from Dex');
+  assert.strictEqual(await page.locator('.welcome svg').count(), 1);
 
   // With nothing shared, the banner explains what to do.
   await send({ type: 'state', sources: [], activeId: undefined, aiReady: false });
@@ -79,6 +81,8 @@ async function launch() {
   await send({ type: 'answer', canRun: true, statsUsed: true, tables: ['orders'], sql: ['SELECT COUNT(*) FROM orders'],
     html: '<p>Count <code>orders</code> <a href="https://example.com/doc" data-external="1">docs</a> <a href="#" aria-disabled="true">bad</a></p><script>window.__pwned = 1</script>' });
   await settle();
+  assert.strictEqual(await page.locator('.msg.bot .who').first().textContent(), 'Dex');
+  assert.strictEqual(await page.locator('.msg.bot .avatar svg').count(), 1);
   assert.strictEqual(await page.locator('.sqlblock pre').textContent(), 'SELECT COUNT(*) FROM orders');
   assert.strictEqual(await page.evaluate(() => window.__pwned), undefined, 'script in an answer did not run');
   await page.click('text=docs');
@@ -124,6 +128,7 @@ async function launch() {
   assert.deepStrictEqual((await sent()).at(-1), { type: 'ask', text: 'what is orders for?' });
   await page.click('#clear');
   assert.strictEqual(await page.locator('.msg').count(), 0);
+  assert.strictEqual(await page.locator('.welcome').count(), 1, 'the welcome is back after a new chat');
   assert.strictEqual((await sent()).at(-1).type, 'clear');
 
   // The page works at a narrow width.

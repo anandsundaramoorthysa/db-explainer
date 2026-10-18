@@ -7,6 +7,7 @@ Understand any database by chatting with it. Share a live database (read-only) o
 
 ## What it does
 
+- **Meet Dex.** The chat assistant is called Dex.
 - **Explains the database.** "What is the orders table for?" "How do payments connect to products?" "What does the status column mean?"
 - **Writes SQL for your goal.** "Top five customers by total spend this year." The query uses your real table and column names and your database's dialect.
 - **Explains a query you paste.** Step by step, checked against the schema.

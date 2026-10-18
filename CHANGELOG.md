@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- The chat assistant now has a name, Dex, a round avatar beside each reply, and a short welcome message when the chat opens.
+
 ## 1.0.0
 
 First release.

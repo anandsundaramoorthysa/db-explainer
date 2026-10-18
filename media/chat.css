@@ -39,3 +39,11 @@ main { flex: 1; overflow-y: auto; padding: 12px; }
 form { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--vscode-panel-border); align-items: flex-end; }
 .noterow { display: flex; gap: 6px; margin-top: 6px; }
 .noterow input { flex: 1; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); font: inherit; padding: 3px 6px; }
+.msg { display: flex; gap: 8px; align-items: flex-start; }
+.msg .col { flex: 1; min-width: 0; }
+.msg.user { justify-content: flex-end; }
+.msg.user .col { flex: 0 1 auto; max-width: 90%; }
+.avatar { flex: none; width: 28px; height: 28px; }
+.avatar svg { display: block; }
+.welcome { display: flex; gap: 10px; align-items: center; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; }
+.welcome .avatar, .welcome .avatar svg { width: 36px; height: 36px; }

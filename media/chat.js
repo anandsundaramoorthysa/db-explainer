@@ -11,11 +11,29 @@
     return e;
   }
   function scrollDown() { log.scrollTop = log.scrollHeight; }
+  const BOT = 'Dex';
+  const AVATAR = '<svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><circle cx="16" cy="16" r="16" fill="#14324D"/><g fill="none" stroke="#3FB6A8" stroke-width="1.8" stroke-linecap="round"><ellipse cx="14" cy="10" rx="6.5" ry="2.4"/><path d="M7.5 10v9M20.5 10v4M7.5 14.5c0 1.3 2.9 2.4 6.5 2.4M7.5 19c0 1.3 2.9 2.4 6.5 2.4"/></g><path d="M16.5 17h9v6.5h-4.3l-2.4 2.3v-2.3h-2.3z" fill="#fff"/><g fill="#14324D"><circle cx="19" cy="20.2" r=".9"/><circle cx="21" cy="20.2" r=".9"/><circle cx="23" cy="20.2" r=".9"/></g></svg>';
+  function avatarEl() {
+    const a = el('div', 'avatar');
+    a.innerHTML = AVATAR;
+    return a;
+  }
+  function welcome() {
+    const w = el('div', 'welcome');
+    w.appendChild(avatarEl());
+    w.appendChild(el('div', 'hello', "Hi, I'm " + BOT + '. Ask me anything about your database: what a table is for, how tables connect, or for a query.'));
+    return w;
+  }
   function add(kind, who) {
+    const first = log.querySelector('.welcome');
+    if (first) first.remove();
     const m = el('div', 'msg ' + kind);
-    m.appendChild(el('div', 'who', who));
+    if (kind !== 'user') m.appendChild(avatarEl());
+    const col = el('div', 'col');
+    col.appendChild(el('div', 'who', kind === 'user' ? who : BOT));
     const body = el('div', 'body');
-    m.appendChild(body);
+    col.appendChild(body);
+    m.appendChild(col);
     log.appendChild(m);
     return { m, body };
   }
@@ -144,6 +162,7 @@
   form.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
   sourceSel.addEventListener('change', () => vscode.postMessage({ type: 'select', id: sourceSel.value }));
-  $('clear').addEventListener('click', () => { log.replaceChildren(); vscode.postMessage({ type: 'clear' }); });
+  $('clear').addEventListener('click', () => { log.replaceChildren(welcome()); vscode.postMessage({ type: 'clear' }); });
+  log.appendChild(welcome());
   vscode.postMessage({ type: 'ready' });
 })();

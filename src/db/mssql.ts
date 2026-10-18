@@ -59,7 +59,7 @@ export class MssqlConnector implements Connector {
     const model: SchemaModel = { engine: 'mssql', name: this.profile.database || this.profile.name, source: 'live', tables: [], routines: [], capturedAt: new Date().toISOString(), warnings: [] };
     const byId = new Map<number, Table>();
 
-    for (const r of await this.rows(`SELECT o.object_id id, s.name s, o.name n, o.type k, CAST(ep.value AS NVARCHAR(4000)) cm, (SELECT SUM(p.rows) FROM sys.partitions p WHERE p.object_id = o.object_id AND p.index_id IN (0,1)) cnt, m.definition def FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id LEFT JOIN sys.extended_properties ep ON ep.major_id = o.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description' LEFT JOIN sys.sql_modules m ON m.object_id = o.object_id AND o.type = 'V' WHERE o.type IN ('U','V') AND o.is_ms_shipped = 0 ORDER BY s.name, o.name`)) {
+    for (const r of await this.rows(`SELECT o.object_id id, s.name s, o.name n, RTRIM(o.type) k, CAST(ep.value AS NVARCHAR(4000)) cm, (SELECT SUM(p.rows) FROM sys.partitions p WHERE p.object_id = o.object_id AND p.index_id IN (0,1)) cnt, m.definition def FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id LEFT JOIN sys.extended_properties ep ON ep.major_id = o.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description' LEFT JOIN sys.sql_modules m ON m.object_id = o.object_id AND o.type = 'V' WHERE o.type IN ('U','V') AND o.is_ms_shipped = 0 ORDER BY s.name, o.name`)) {
       const t = emptyTable(r.n, schemaFor('mssql', r.s));
       t.kind = r.k === 'V' ? 'view' : 'table';
       if (r.cm) t.comment = r.cm;
@@ -125,7 +125,7 @@ export class MssqlConnector implements Connector {
       for (const r of await this.rows(`SELECT parent_object_id id, name n, definition d FROM sys.check_constraints WHERE is_ms_shipped = 0`)) {
         byId.get(r.id)?.checks.push({ name: r.n, expression: String(r.d) });
       }
-      for (const r of await this.rows(`SELECT s.name s, o.name n, o.type k FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id WHERE o.type IN ('P','FN','IF','TF') AND o.is_ms_shipped = 0`)) {
+      for (const r of await this.rows(`SELECT s.name s, o.name n, RTRIM(o.type) k FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id WHERE o.type IN ('P','FN','IF','TF') AND o.is_ms_shipped = 0`)) {
         const routine: Routine = { schema: schemaFor('mssql', r.s), name: r.n, kind: r.k === 'P' ? 'procedure' : 'function' };
         model.routines.push(routine);
       }
@@ -184,10 +184,13 @@ export class MssqlConnector implements Connector {
         request.query(text);
       });
     } finally {
-      await tx.rollback().catch(() => undefined);
-      if (timedOut) {
+      if (timedOut || cut) {
+        // A stopped query may still be running, and a rollback would wait for it. Dropping the connection ends the work and the
+        // server rolls the transaction back by itself. Closing is not awaited for long: it can take a moment to notice.
         this.pool = undefined;
-        await pool.close().catch(() => undefined);
+        await closeQuickly(pool);
+      } else {
+        await tx.rollback().catch(() => undefined);
       }
     }
     return toResult(columns, rows, limits.maxRows, started);
@@ -196,8 +199,14 @@ export class MssqlConnector implements Connector {
   async close(): Promise<void> {
     const p = this.pool;
     this.pool = undefined;
-    await p?.close().catch(() => undefined);
+    await closeQuickly(p);
   }
+}
+
+/** Closing a pool can wait on a connection that is busy being cancelled, so give it a moment and move on. */
+async function closeQuickly(pool: sql.ConnectionPool | undefined): Promise<void> {
+  if (!pool) return;
+  await Promise.race([pool.close().catch(() => undefined), new Promise((r) => setTimeout(r, 1500))]);
 }
 
 function action(v: unknown): string | undefined {

@@ -107,6 +107,12 @@ Please report security problems privately, as described in [SECURITY.md](SECURIT
 
 ---
 
+## Credits
+
+Created by [Anand Sundaramoorthy SA](https://github.com/anandsundaramoorthysa) and [Aflin Rinosha](https://github.com/aflinrinosha2004).
+
+---
+
 ## License
 
 Released under the **MIT License**. See [LICENSE](LICENSE).

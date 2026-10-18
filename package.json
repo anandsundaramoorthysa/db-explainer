@@ -7,6 +7,12 @@
   "author": {
     "name": "Anand Sundaramoorthy SA"
   },
+  "contributors": [
+    {
+      "name": "Aflin Rinosha",
+      "url": "https://github.com/aflinrinosha2004"
+    }
+  ],
   "license": "MIT",
   "icon": "media/icon.png",
   "galleryBanner": {

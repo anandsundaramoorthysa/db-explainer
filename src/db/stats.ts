@@ -62,14 +62,14 @@ export async function profileTable(conn: Connector, engine: DbEngine, table: Tab
   };
 }
 
-/** One line per table for the prompt, for example: "5 rows; email 0% empty, 5 different; total_amount 399 to 89999". */
+/** One line per table for the prompt, for example: "exact row count 5; customer_id 1 of 5 NULL; status 3 different values; total_amount 399 to 89999". */
 export function describeStats(s: TableStats): string {
   const bits = s.columns
-    .filter((c) => c.nullPercent > 0 || (c.distinct !== undefined && c.distinct <= 12 && s.rowCount > 12) || c.min !== undefined)
+    .filter((c) => s.rowCount > c.nonNull || (c.distinct !== undefined && c.distinct <= 12 && s.rowCount > 12) || c.min !== undefined)
     .slice(0, 14)
     .map((c) => {
       const parts = [`${c.name}`];
-      if (c.nullPercent > 0) parts.push(`${c.nullPercent}% empty`);
+      if (s.rowCount > c.nonNull) parts.push(`${s.rowCount - c.nonNull} of ${s.rowCount} NULL`);
       if (c.distinct !== undefined && c.distinct <= 12 && s.rowCount > 12) parts.push(`${c.distinct} different values`);
       if (c.min !== undefined && c.max !== undefined) parts.push(`${c.min} to ${c.max}`);
       return parts.join(' ');

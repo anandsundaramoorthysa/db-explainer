@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/anandsundaramoorthysa/db-explainer/security/policy
+    about: Please follow SECURITY.md instead of opening a public issue.

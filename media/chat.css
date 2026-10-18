@@ -1,0 +1,41 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { margin: 0; height: 100vh; display: flex; flex-direction: column; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+header { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
+header select { flex: 1; min-width: 0; }
+select, textarea { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 3px; font: inherit; padding: 4px 6px; }
+textarea { flex: 1; resize: vertical; min-height: 44px; max-height: 200px; }
+button { font: inherit; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; border-radius: 3px; padding: 4px 12px; cursor: pointer; }
+button:hover { background: var(--vscode-button-hoverBackground); }
+button:disabled { opacity: .5; cursor: default; }
+button.ghost { color: var(--vscode-foreground); background: transparent; border: 1px solid var(--vscode-panel-border); }
+button.ghost:hover { background: var(--vscode-toolbar-hoverBackground); }
+:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.banner { margin: 8px 12px 0; padding: 6px 10px; border-radius: 3px; background: var(--vscode-inputValidation-infoBackground); border: 1px solid var(--vscode-inputValidation-infoBorder); }
+.banner.warn { background: var(--vscode-inputValidation-warningBackground); border-color: var(--vscode-inputValidation-warningBorder); }
+main { flex: 1; overflow-y: auto; padding: 12px; }
+.msg { margin: 0 0 14px; max-width: 100%; }
+.msg .who { font-size: .85em; opacity: .7; margin-bottom: 2px; }
+.msg.user .body { background: var(--vscode-textBlockQuote-background); border-left: 3px solid var(--vscode-textBlockQuote-border); padding: 6px 10px; white-space: pre-wrap; }
+.msg.error .body { color: var(--vscode-errorForeground); }
+.msg .body p { margin: .4em 0; }
+.msg .body code { font-family: var(--vscode-editor-font-family); background: var(--vscode-textCodeBlock-background); padding: 0 3px; border-radius: 3px; }
+.msg .body pre { background: var(--vscode-textCodeBlock-background); padding: 8px; overflow-x: auto; border-radius: 3px; }
+.msg .body pre code { padding: 0; background: none; }
+.msg .body table { border-collapse: collapse; }
+.msg .body th, .msg .body td { border: 1px solid var(--vscode-panel-border); padding: 2px 8px; }
+.sqlblock { margin: 8px 0; border: 1px solid var(--vscode-panel-border); border-radius: 3px; }
+.sqlblock pre { margin: 0; padding: 8px; overflow-x: auto; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
+.sqlblock .bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--vscode-panel-border); align-items: center; }
+.sqlblock .hint { font-size: .85em; opacity: .75; }
+.result { margin-top: 6px; }
+.result .meta { font-size: .85em; opacity: .8; margin: 4px 0; }
+.result .scroll { max-height: 260px; overflow: auto; border: 1px solid var(--vscode-panel-border); }
+.result table { border-collapse: collapse; width: 100%; font-family: var(--vscode-editor-font-family); font-size: .92em; }
+.result th, .result td { padding: 2px 8px; border-bottom: 1px solid var(--vscode-panel-border); text-align: left; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.result th { position: sticky; top: 0; background: var(--vscode-editor-background); }
+.result td.null { opacity: .5; font-style: italic; }
+.thinking { padding: 0 12px 6px; opacity: .75; }
+form { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--vscode-panel-border); align-items: flex-end; }
+.noterow { display: flex; gap: 6px; margin-top: 6px; }
+.noterow input { flex: 1; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); font: inherit; padding: 3px 6px; }

@@ -1,0 +1,28 @@
+CREATE TABLE customers (
+  id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+  full_name VARCHAR(100) NOT NULL,
+  email VARCHAR(150) NOT NULL UNIQUE,
+  phone VARCHAR(20),
+  created_at DATETIME NOT NULL
+);
+
+CREATE TABLE products (
+  id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+  sku VARCHAR(40) NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  price DECIMAL(8,2) NOT NULL,
+  legacy_code VARCHAR(20)
+);
+
+CREATE TABLE orders (
+  id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+  customer_id INT NOT NULL,
+  total_amount DECIMAL(12,2) NOT NULL,
+  placed_at DATETIME NOT NULL
+);
+
+CREATE TABLE newsletter_subscribers (
+  id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+  email VARCHAR(150) NOT NULL,
+  subscribed_at DATETIME NOT NULL
+);

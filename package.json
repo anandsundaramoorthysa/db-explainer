@@ -1,0 +1,392 @@
+{
+  "name": "db-explainer",
+  "displayName": "DB Explainer",
+  "description": "Understand any database by chatting with it. Connect read-only or paste SQL, then ask in plain English, get SQL written, explained and run safely. You bring your own AI key.",
+  "version": "1.0.0",
+  "publisher": "AnandSundaramoorthySa",
+  "author": {
+    "name": "Anand Sundaramoorthy SA"
+  },
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#14324D",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anandsundaramoorthysa/db-explainer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anandsundaramoorthysa/db-explainer/issues"
+  },
+  "homepage": "https://github.com/anandsundaramoorthysa/db-explainer#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Data Science",
+    "Education",
+    "Other"
+  ],
+  "keywords": [
+    "database",
+    "sql",
+    "schema",
+    "mysql",
+    "mariadb",
+    "postgresql",
+    "sql server",
+    "sqlite",
+    "chat",
+    "explain",
+    "ai",
+    "text to sql"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "dbExplainer.openChat",
+        "title": "Open Chat",
+        "category": "DB Explainer",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "dbExplainer.addConnection",
+        "title": "Add Database Connection",
+        "category": "DB Explainer",
+        "icon": "$(add)"
+      },
+      {
+        "command": "dbExplainer.connect",
+        "title": "Connect",
+        "category": "DB Explainer",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "dbExplainer.disconnect",
+        "title": "Disconnect",
+        "category": "DB Explainer",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "dbExplainer.removeConnection",
+        "title": "Remove Connection",
+        "category": "DB Explainer",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "dbExplainer.refresh",
+        "title": "Refresh Schema",
+        "category": "DB Explainer",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dbExplainer.shareSql",
+        "title": "Share SQL With the Chat",
+        "category": "DB Explainer",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "dbExplainer.askAboutTable",
+        "title": "Ask About This Table",
+        "category": "DB Explainer",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "dbExplainer.addNote",
+        "title": "Add a Team Note",
+        "category": "DB Explainer",
+        "icon": "$(note)"
+      },
+      {
+        "command": "dbExplainer.openNotes",
+        "title": "Open Team Notes",
+        "category": "DB Explainer"
+      },
+      {
+        "command": "dbExplainer.ai.setKey",
+        "title": "AI: Set API Key",
+        "category": "DB Explainer"
+      },
+      {
+        "command": "dbExplainer.ai.clearKey",
+        "title": "AI: Clear API Key",
+        "category": "DB Explainer"
+      },
+      {
+        "command": "dbExplainer.ai.test",
+        "title": "AI: Test Connection",
+        "category": "DB Explainer"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dbExplainer",
+          "title": "DB Explainer",
+          "icon": "media/sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "dbExplainer": [
+        {
+          "id": "dbExplainer.connections",
+          "name": "Databases",
+          "contextualTitle": "DB Explainer"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "dbExplainer.connections",
+        "contents": "Connect to a database, or share some SQL, then ask questions about it in plain English.\n[Add a database connection](command:dbExplainer.addConnection)\n[Open the chat](command:dbExplainer.openChat)\n[Share the open SQL file](command:dbExplainer.shareSql)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "dbExplainer.askAboutTable",
+          "when": "false"
+        },
+        {
+          "command": "dbExplainer.connect",
+          "when": "false"
+        },
+        {
+          "command": "dbExplainer.disconnect",
+          "when": "false"
+        },
+        {
+          "command": "dbExplainer.removeConnection",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "dbExplainer.openChat",
+          "when": "view == dbExplainer.connections",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dbExplainer.addConnection",
+          "when": "view == dbExplainer.connections",
+          "group": "navigation@2"
+        },
+        {
+          "command": "dbExplainer.refresh",
+          "when": "view == dbExplainer.connections",
+          "group": "navigation@3"
+        },
+        {
+          "command": "dbExplainer.addNote",
+          "when": "view == dbExplainer.connections",
+          "group": "overflow@1"
+        },
+        {
+          "command": "dbExplainer.openNotes",
+          "when": "view == dbExplainer.connections",
+          "group": "overflow@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "dbExplainer.connect",
+          "when": "view == dbExplainer.connections && viewItem == connectionIdle",
+          "group": "inline@1"
+        },
+        {
+          "command": "dbExplainer.disconnect",
+          "when": "view == dbExplainer.connections && viewItem == connectionActive",
+          "group": "inline@1"
+        },
+        {
+          "command": "dbExplainer.removeConnection",
+          "when": "view == dbExplainer.connections && viewItem =~ /^connection/",
+          "group": "9_manage"
+        },
+        {
+          "command": "dbExplainer.askAboutTable",
+          "when": "view == dbExplainer.connections && viewItem == table",
+          "group": "inline@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "dbExplainer.shareSql",
+          "when": "resourceExtname == .sql",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "dbExplainer.shareSql",
+          "when": "resourceExtname == .sql",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DB Explainer",
+      "properties": {
+        "dbExplainer.ai.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434/v1",
+          "markdownDescription": "Base URL of any OpenAI-compatible chat API. Examples: `http://localhost:11434/v1` (Ollama), `http://localhost:1234/v1` (LM Studio), `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`."
+        },
+        "dbExplainer.ai.model": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Model name to request, for example `qwen2.5-coder:7b` or `gpt-4o-mini`."
+        },
+        "dbExplainer.ai.maxTokens": {
+          "type": "number",
+          "default": 1200,
+          "minimum": 100,
+          "maximum": 8000,
+          "description": "Upper limit on the length of each AI reply."
+        },
+        "dbExplainer.ai.maxTokensParam": {
+          "type": "string",
+          "default": "max_tokens",
+          "enum": [
+            "max_tokens",
+            "max_completion_tokens"
+          ],
+          "description": "Name of the request field that limits reply length. Some newer hosted models need max_completion_tokens."
+        },
+        "dbExplainer.query.maxRows": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Most rows a query may return. Extra rows are never fetched."
+        },
+        "dbExplainer.query.timeoutSeconds": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "maximum": 120,
+          "description": "A query that runs longer than this is cancelled."
+        },
+        "dbExplainer.ai.sampleRows": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "How many rows are sent to the AI when you choose to let it see a result. Sensitive-looking columns are masked first."
+        },
+        "dbExplainer.context.maxTables": {
+          "type": "number",
+          "default": 12,
+          "minimum": 3,
+          "maximum": 40,
+          "description": "How many of the most relevant tables are described in full for each question."
+        },
+        "dbExplainer.notes.path": {
+          "type": "string",
+          "default": ".dbexplainer/notes.md",
+          "markdownDescription": "Team notes file, relative to the workspace folder. Commit it so everyone's chat uses the same notes."
+        }
+      }
+    },
+    "walkthroughs": [
+      {
+        "id": "dbExplainer.gettingStarted",
+        "title": "Get started with DB Explainer",
+        "description": "Connect a database, ask a question and run a query safely.",
+        "steps": [
+          {
+            "id": "connect",
+            "title": "Share a database",
+            "description": "Add a read-only connection, or share a SQL file.\n[Add a database connection](command:dbExplainer.addConnection)",
+            "media": {
+              "markdown": "media/walkthrough/connect.md"
+            },
+            "completionEvents": [
+              "onCommand:dbExplainer.addConnection",
+              "onCommand:dbExplainer.shareSql"
+            ]
+          },
+          {
+            "id": "ask",
+            "title": "Ask in plain English",
+            "description": "Open the chat and ask what a table is for, how two tables connect, or for a query.\n[Open the chat](command:dbExplainer.openChat)",
+            "media": {
+              "markdown": "media/walkthrough/ask.md"
+            },
+            "completionEvents": [
+              "onCommand:dbExplainer.openChat"
+            ]
+          },
+          {
+            "id": "ai",
+            "title": "Bring your own AI",
+            "description": "Set the model and key of the AI service you use. They stay on your machine.\n[Set API key](command:dbExplainer.ai.setKey)",
+            "media": {
+              "markdown": "media/walkthrough/ai.md"
+            },
+            "completionEvents": [
+              "onCommand:dbExplainer.ai.setKey"
+            ]
+          },
+          {
+            "id": "notes",
+            "title": "Teach it your business",
+            "description": "Save what columns and statuses mean in a team notes file.\n[Add a team note](command:dbExplainer.addNote)",
+            "media": {
+              "markdown": "media/walkthrough/notes.md"
+            },
+            "completionEvents": [
+              "onCommand:dbExplainer.addNote"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc --noEmit -p ./",
+    "pretest": "node esbuild.js",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:ui": "node test/ui/panel.js",
+    "test:e2e": "node test/e2e/runTest.js",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0",
+    "mssql": "^11.0.1",
+    "mysql2": "^3.11.0",
+    "node-sql-parser": "^5.3.0",
+    "pg": "^8.13.0",
+    "sql.js": "^1.11.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/mssql": "^9.1.5",
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.0",
+    "@types/sql.js": "^1.4.9",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.24.0",
+    "playwright-core": "^1.50.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.8"
+  }
+}

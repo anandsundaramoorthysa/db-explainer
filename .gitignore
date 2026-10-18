@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+out-test/
+dist/
+*.tsbuildinfo
+
+# Test coverage / caches
+coverage/
+.vitest/
+.eslintcache
+
+# Packaged extension
+*.vsix
+*.tgz
+
+# Logs
+*.log
+npm-debug.log*
+
+# VS Code test runner
+.vscode-test/
+
+# Local tooling
+.impeccable/
+
+# Local environment and credentials
+.env
+.env.*
+*.db-local
+
+# Scratch artifacts
+test-output/
+.tmp/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+*.bak

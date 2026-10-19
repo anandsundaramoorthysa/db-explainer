@@ -1,3 +1,4 @@
+import { splitStatements } from '../importer/sqlText';
 import { DbEngine, ENGINE_DIALECT } from '../types';
 import { ChatMessage } from './client';
 import { MaskedSample, sampleToText } from './mask';
@@ -110,22 +111,37 @@ export function buildMessages(input: PromptInput): ChatMessage[] {
   return [{ role: 'system', content: systemPrompt(input.engine) }, ...input.history.slice(-8), { role: 'user', content: blocks.join('\n\n') }];
 }
 
-/** Pulls the SQL out of fenced code blocks in an AI reply. */
+const LEADING_COMMENTS = /^(?:\s*(?:--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/))*\s*/;
+
+/** The runnable queries in one code block. A block may start with a comment or hold several statements, and each gets its own entry. */
+function queriesIn(block: string): string[] {
+  return splitStatements(block)
+    .map((s) => s.text.replace(LEADING_COMMENTS, '').trim().replace(/;\s*$/, ''))
+    .filter((t) => /^(select|with|explain)\b/i.test(t));
+}
+
+/** Pulls the SQL out of code blocks in an AI reply (fenced, or in <sql> tags, which some models use instead). */
 export function extractSql(reply: string): string[] {
   const out: string[] = [];
-  for (const m of reply.matchAll(/```(?:sql|mysql|postgresql|postgres|tsql|sqlite)?\s*\n([\s\S]*?)```/gi)) {
-    const text = m[1].trim();
-    if (/^(select|with|explain)\b/i.test(text)) out.push(text.replace(/;\s*$/, ''));
-  }
+  for (const m of reply.matchAll(/<sql>([\s\S]*?)<\/sql>/gi)) out.push(...queriesIn(m[1]));
+  for (const m of reply.matchAll(/```(?:sql|mysql|postgresql|postgres|tsql|sqlite)?\s*\n([\s\S]*?)```/gi)) out.push(...queriesIn(m[1]));
   return out;
 }
 
 /** The reply without its runnable SQL blocks, which the chat shows separately with a Run button. Other code blocks stay. */
 export function stripSqlBlocks(reply: string): string {
   return reply
-    .replace(/```(?:sql|mysql|postgresql|postgres|tsql|sqlite)?\s*\n([\s\S]*?)```/gi, (whole, body: string) => (/^(select|with|explain)\b/i.test(body.trim()) ? '' : whole))
+    .replace(/<sql>([\s\S]*?)<\/sql>/gi, (whole, body: string) => (queriesIn(body).length ? '' : whole))
+    .replace(/```(?:sql|mysql|postgresql|postgres|tsql|sqlite)?\s*\n([\s\S]*?)```/gi, (whole, body: string) => (queriesIn(body).length ? '' : whole))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/** The SQL inside a developer's question, whether it is fenced, the whole message, or follows a sentence such as "review this:". */
+export function pastedSql(question: string): string | undefined {
+  const fenced = question.match(/```(?:sql)?\s*\n([\s\S]*?)```/i)?.[1];
+  const candidate = (fenced ?? question.match(/\b(select|with)\b[\s\S]*/i)?.[0] ?? '').trim();
+  return /^(select|with)\b/i.test(candidate) && /\bselect\b[\s\S]*\bfrom\b/i.test(candidate) ? candidate.replace(/;\s*$/, '') : undefined;
 }
 
 /** True when the developer's message is mostly a SQL query, so the assistant should explain it. */

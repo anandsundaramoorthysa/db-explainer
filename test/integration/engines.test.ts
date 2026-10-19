@@ -135,6 +135,14 @@ describe.each(cases)('$engine', (c) => {
     expect((await conn.query('SELECT COUNT(*) FROM customers', LIMITS)).rows[0].map(Number)).toEqual([5]);
   });
 
+  // SQL Server has no plain EXPLAIN, so the extension does not plan queries there.
+  (c.engine === 'mssql' ? it.skip : run)('plans a query without running it, and the database refuses a wrong one', async () => {
+    const ok = await conn.query('EXPLAIN SELECT id FROM customers', { maxRows: 1, timeoutMs: 5000 });
+    expect(ok.rows.length).toBeGreaterThan(0);
+    await expect(conn.query('EXPLAIN SELECT no_such_column FROM customers', { maxRows: 1, timeoutMs: 5000 })).rejects.toThrow(/no_such_column|unknown|exist|no such/i);
+    await expect(conn.query('EXPLAIN SELECT * FROM customers WHERE NOT IN (SELECT 1)', { maxRows: 1, timeoutMs: 5000 })).rejects.toThrow(/syntax|near|error/i);
+  });
+
   run('stops a query that runs too long', async () => {
     const started = Date.now();
     await expect(conn.query(c.sleepQuery, { maxRows: 10, timeoutMs: 2000 })).rejects.toThrow(/longer than 2 seconds|timed out|timeout/i);

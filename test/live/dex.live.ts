@@ -18,6 +18,8 @@ const cfg = { baseUrl, model, maxTokens: 1200, maxTokensParam: 'max_tokens' as c
 
 interface Verdict {
   ok: boolean;
+  /** Not correct, but the answer tells the developer what is wrong, so nothing fails silently. Defaults to ok. */
+  safe?: boolean;
   notes: string[];
 }
 interface Scenario {
@@ -33,7 +35,7 @@ const scenarios: Scenario[] = [
   {
     id: 'S1 cancelled orders (value casing)',
     question: 'List the cancelled orders and their customers.',
-    judge: ({ sql, rows }) => {
+    judge: ({ text, sql, rows }) => {
       const notes: string[] = [];
       if (!sql.length) return { ok: false, notes: ['no SQL was offered'] };
       const lit = sql.join('\n').match(/status\s*(?:=|like|ilike)\s*'([^']*)'|lower\(\s*(?:\w+\.)?status\s*\)\s*=\s*'([^']*)'/i);
@@ -42,7 +44,7 @@ const scenarios: Scenario[] = [
       if (!ran) return { ok: false, notes: [...notes, 'no query ran: ' + (rows[0]?.reason ?? '')] };
       const n = ran.rows?.length ?? 0;
       notes.push(`rows returned: ${n} (4 cancelled orders exist; 3 means the order with no customer was silently dropped by an inner join)`);
-      return { ok: n === 4, notes };
+      return { ok: n === 4, safe: n === 4 || /leaves those rows out/.test(text), notes };
     },
   },
   {
@@ -77,7 +79,8 @@ const scenarios: Scenario[] = [
       notes.push(`ends with one complete corrected query that groups by customer_id: ${complete}`);
       const ran = rows.find((r) => r.ok && r.sql === last.replace(/;\s*$/, ''));
       notes.push(`corrected query runs: ${!!ran}${ran ? ` (${ran.rows?.length} rows)` : ''}`);
-      return { ok: leftJoin && complete && !!ran, notes };
+      const flagged = /Problems found in your query/.test(text) && /LEFT JOIN kept/.test(text);
+      return { ok: leftJoin && complete && !!ran, safe: (leftJoin && complete && !!ran) || (flagged && /Grouping by|LEFT JOIN kept|Check before you run this/.test(text)), notes };
     },
   },
   {
@@ -100,7 +103,7 @@ const scenarios: Scenario[] = [
   {
     id: 'S5 orders per customer (group by key, no inflated count)',
     question: 'How many orders does each customer have? Include the order item count too.',
-    judge: ({ sql, rows }) => {
+    judge: ({ text, sql, rows }) => {
       const notes: string[] = [];
       const joined = sql.join('\n');
       const byKey = /group\s+by[^;]*customer_id/i.test(joined);
@@ -119,13 +122,13 @@ const scenarios: Scenario[] = [
           notes.push(`order-count column "${ran.columns[orderCol]}" matches the true counts: ${right}`);
         } else notes.push('could not find the customer id and order count columns');
       }
-      return { ok: byKey && right, notes };
+      return { ok: byKey && right, safe: (byKey && right) || /inflated|Grouping by/.test(text), notes };
     },
   },
 ];
 
 let source: Source;
-const report: Array<{ id: string; run: number; ok: boolean; notes: string[]; text: string; sql: string[]; ms: number }> = [];
+const report: Array<{ id: string; run: number; ok: boolean; safe: boolean; notes: string[]; text: string; sql: string[]; ms: number }> = [];
 
 beforeAll(async () => {
   const dbFile = path.join(root, 'test', 'fixtures', 'sql_explainer_test.db');
@@ -155,7 +158,7 @@ describe(`Dex with ${model}`, () => {
           ran.push(out.ok ? { sql, ok: true, columns: out.result.columns, rows: out.result.rows } : { sql, ok: false, reason: out.reason });
         }
         const v = sc.judge({ text: a.text, sql: a.sql, rows: ran });
-        report.push({ id: sc.id, run: i, ok: v.ok, notes: v.notes, text: a.text, sql: a.sql, ms: Date.now() - t0 });
+        report.push({ id: sc.id, run: i, ok: v.ok, safe: v.safe ?? v.ok, notes: v.notes, text: a.text, sql: a.sql, ms: Date.now() - t0 });
         console.log(`\n=== ${sc.id} (run ${i}) -> ${v.ok ? 'PASS' : 'FAIL'}  [${Math.round((Date.now() - t0) / 1000)}s]\n${v.notes.map((n) => '  - ' + n).join('\n')}\n--- Dex said:\n${a.text}\n`);
       });
     }
@@ -168,6 +171,6 @@ afterAll(() => {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, JSON.stringify(report, null, 2));
   const pass = report.filter((r) => r.ok).length;
-  console.log(`\nSUMMARY ${model}: ${pass}/${report.length} passed. Details in ${out}`);
+  console.log(`\nSUMMARY ${model}: ${pass}/${report.length} correct, ${report.filter((r) => r.safe).length}/${report.length} correct or clearly flagged. Details in ${out}`);
   for (const r of report) console.log(`  ${r.ok ? 'PASS' : 'FAIL'}  ${r.id} (run ${r.run})`);
 });

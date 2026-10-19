@@ -2,7 +2,7 @@
   "name": "db-explainer",
   "displayName": "DB Explainer",
   "description": "Understand any database by chatting with it. Connect read-only or paste SQL, then ask in plain English, get SQL written, explained and run safely. You bring your own AI key.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "AnandSundaramoorthySa",
   "author": {
     "name": "Anand Sundaramoorthy SA"

@@ -1,12 +1,13 @@
 import { ChatMessage } from '../ai/client';
-import { lintSql } from '../ai/lint';
+import { lintSql, NullCounts } from '../ai/lint';
+import { answerProblems, repairRequest } from '../ai/review';
 import { maskSample, MaskedSample } from '../ai/mask';
-import { buildMessages, extractSql, looksLikeQuery } from '../ai/prompt';
+import { buildMessages, extractSql, looksLikeQuery, pastedSql } from '../ai/prompt';
 import { Connector } from '../db/connector';
 import { guardReadOnly } from '../db/sqlGuard';
 import { describeStats, profileTable, TableStats } from '../db/stats';
 import { buildContext } from '../model/contextBuilder';
-import { findTable } from '../model/schemaModel';
+import { findTable, tableKey } from '../model/schemaModel';
 import { QueryLimits, QueryResult, SchemaModel } from '../types';
 
 /** Something the developer can ask about: a live connection, or SQL they shared. */
@@ -86,17 +87,59 @@ export class Conversation {
     const stats = await this.statsFor(source, first.tables);
     const ctx = stats.size ? buildContext(source.model, asked, notes, options, stats) : first;
     const messages = buildMessages({ engine: source.model.engine, question: asked, context: ctx.text, sharedSql: source.sharedSql, history: this.history, sample });
-    const text = await this.deps.ai(messages);
+    // How many NULLs each column has comes from the statistics that were just read. Only counts are used.
+    const nullCounts: NullCounts = (table, column) => {
+      const s = this.stats.get(`${source.id}\u0000${tableKey(table)}`)?.value;
+      const c = s?.columns.find((x) => x.name === column);
+      return s && c ? { nulls: s.rowCount - c.nonNull, rows: s.rowCount } : undefined;
+    };
+    const pastedQuery = pastedSql(question);
+    const pasted = pastedQuery ? lintSql(source.model, pastedQuery, nullCounts) : [];
+    let text = await this.deps.ai(messages);
+    // A model can ignore the rules it was given. If the answer has problems the schema can reveal, or the database refuses the
+    // query when asked to plan it, ask the model once to fix them.
+    const check = async (reply: string): Promise<string[]> => [...answerProblems(source.model, asked, reply, extractSql(reply), pasted, nullCounts), ...(sample ? [] : await this.rejectedByDatabase(source, extractSql(reply)))];
+    const problems = await check(text);
+    if (problems.length && !sample) {
+      try {
+        const again = await this.deps.ai([...messages, { role: 'assistant', content: text }, { role: 'user', content: repairRequest(problems) }]);
+        if ((await check(again)).length <= problems.length) text = again;
+      } catch {
+        // The first answer is still good enough to show.
+      }
+    }
     this.history.push({ role: 'user', content: asked }, { role: 'assistant', content: text });
     const sql = extractSql(text);
-    const pasted = looksLikeQuery(question) ? lintSql(source.model, asked.replace(/^[\s\S]*?```sql\s*\n|\n?```\s*$/g, '')) : [];
-    const warnings = [...new Set(sql.flatMap((s) => lintSql(source.model, s)))].filter((w) => !pasted.includes(w));
+    const warnings = [...new Set(sql.flatMap((s) => lintSql(source.model, s, nullCounts)))].filter((w) => !pasted.includes(w));
+    const refused = sample ? [] : await this.rejectedByDatabase(source, sql);
     const checks = [
       pasted.length ? `**Problems found in your query** (checked against the schema):\n${pasted.map((w) => '- ' + w).join('\n')}` : '',
-      warnings.length ? `**Check before you run this:**\n${warnings.map((w) => '- ' + w).join('\n')}` : '',
+      warnings.length || refused.length ? `**Check before you run this:**\n${[...warnings, ...refused].map((w) => '- ' + w).join('\n')}` : '',
     ].filter(Boolean);
     const shown = checks.length ? `${text}\n\n${checks.join('\n\n')}` : text;
     return { text: shown, sql, tables: ctx.tables, statsUsed: stats.size > 0 };
+  }
+
+  /**
+   * Asks a live database to plan each query with EXPLAIN, which compiles it without running it or reading any row, and returns
+   * the database's own complaint for each one it refuses (a syntax error, an unknown column). SQL Server has no plain EXPLAIN.
+   */
+  private async rejectedByDatabase(source: Source, queries: string[]): Promise<string[]> {
+    if (!source.connector || source.model.engine === 'mssql') return [];
+    const limits = { maxRows: 1, timeoutMs: Math.min(this.deps.limits().timeoutMs, 5000) };
+    const out: string[] = [];
+    for (const q of queries.slice(0, 3)) {
+      if (/^\s*explain\b/i.test(q)) continue;
+      const guarded = guardReadOnly(`EXPLAIN ${q}`, source.model.engine);
+      if (!guarded.ok) continue;
+      try {
+        await source.connector.query(guarded.sql, limits);
+      } catch (e) {
+        const message = ((e as Error).message ?? '').split('\n')[0].slice(0, 200);
+        if (message && !/timed out|timeout|connect|ECONN/i.test(message)) out.push(`The database refused this query when asked to plan it: ${message}`);
+      }
+    }
+    return [...new Set(out)];
   }
 
   /** Runs a query for the developer after the guard has checked it. The AI is not involved and never sees the rows. */

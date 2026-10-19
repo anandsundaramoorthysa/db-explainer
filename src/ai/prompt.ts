@@ -4,10 +4,10 @@ import { MaskedSample, sampleToText } from './mask';
 
 // How each dialect compares text. The assistant has not seen the data, so it must not guess the capitalisation of a value.
 const CASE_RULE: Record<DbEngine, string> = {
-  sqlite: "In SQLite, = on text is case-sensitive, so 'Cancelled' does not match 'cancelled'. Compare with LOWER(col) = 'value' (lowercase literal), or COLLATE NOCASE.",
-  postgres: "In PostgreSQL, = on text is case-sensitive, so 'Cancelled' does not match 'cancelled'. Compare with LOWER(col) = 'value' (lowercase literal), or ILIKE.",
-  mysql: "In MySQL and MariaDB, = on text is usually case-insensitive, but that depends on the column's collation, so do not rely on it. LOWER(col) = 'value' (lowercase literal) is safe.",
-  mssql: "In SQL Server, = on text is usually case-insensitive, but that depends on the collation, so do not rely on it. LOWER(col) = 'value' (lowercase literal) is safe.",
+  sqlite: 'Text comparison with = is case-sensitive in SQLite. Write every text filter as LOWER(col) = \'lowercase text\' (a lowercase literal), never = with capital letters.',
+  postgres: 'Text comparison with = is case-sensitive in PostgreSQL. Write every text filter as LOWER(col) = \'lowercase text\' (a lowercase literal), never = with capital letters.',
+  mysql: 'Whether = on text ignores case depends on the column collation, so do not rely on it. Write every text filter as LOWER(col) = \'lowercase text\' (a lowercase literal).',
+  mssql: 'Whether = on text ignores case depends on the collation, so do not rely on it. Write every text filter as LOWER(col) = \'lowercase text\' (a lowercase literal).',
 };
 
 export function systemPrompt(engine: DbEngine): string {
@@ -17,7 +17,7 @@ export function systemPrompt(engine: DbEngine): string {
     '',
     'HOW TO ANSWER',
     '- Answer from the context only. Name the tables and columns you rely on. If something is not in the context, say it is not there. Never invent tables, columns or values.',
-    '- Keep answers short and concrete. Use bullet points for lists. The developer is reading this in the middle of a task.',
+    '- Keep answers short and concrete, and use bullet points for lists, but never answer a comparison, a review or a "why" question with only SQL. Always add the explanation in words.',
     '- Explain what a table is for, how tables relate (follow the foreign keys, and say which column joins them), and what could break if something changes (use keys, indexes and ON DELETE rules).',
     '- Statistics are approximate and describe the data without showing it. Never claim to have seen real rows unless a SAMPLE ROWS block is given.',
     '- Team notes are facts about the business. Use them, and say when an answer depends on one.',
@@ -38,6 +38,7 @@ export function systemPrompt(engine: DbEngine): string {
     '- A column without NOT NULL or PK in the context allows NULL. Statistics list the NULL counts that exist.',
     '- NOT IN (subquery) returns no rows at all if the subquery can return a NULL. Check the column, prefer NOT EXISTS, and when you compare the two forms, always say this and which one is right for the data.',
     '- Joining a one-to-many table repeats rows, so COUNT(*) and SUM() are inflated. Count with COUNT(DISTINCT key) or aggregate before joining.',
+    '- An INNER JOIN silently drops rows whose foreign key is NULL. Use LEFT JOIN when the column allows NULL and the developer wants every row.',
     '- A LEFT JOIN is turned into an INNER JOIN by a WHERE condition on the right-hand table. Put that condition in the ON clause.',
     '- Every selected column must be grouped or aggregated. Two rows with the same name can be different people, so group by the key.',
     '- A function on a column in WHERE (for example LOWER(col) or YEAR(col)) can stop an index being used. Mention it when the table is large.',
@@ -65,6 +66,35 @@ export interface PromptInput {
 
 const MAX_SHARED_SQL = 6000;
 
+/**
+ * Short, relevant rules placed right after the question. A long system prompt is easy to lose, especially for small models,
+ * so the rules that matter for this particular question are repeated where they will be read last.
+ */
+export function remindersFor(question: string, engine: DbEngine): string[] {
+  const q = question.toLowerCase();
+  const out: string[] = [];
+  if (/cancel|complet|pending|status|active|inactive|type|category|country|state\b/.test(q)) out.push(CASE_RULE[engine]);
+  if (/\bnot\s+in\b|\bnot\s+exists\b|\bno\s+\w+\s+(orders|rows|records)\b|\bnever\b|\bwithout\b/.test(q)) {
+    out.push('NOT IN (subquery) returns NO rows at all if the subquery column contains a NULL. Check whether that column allows NULL, and say so.');
+    out.push('Prefer NOT EXISTS. If asked to compare the two, give BOTH queries in separate ```sql blocks, then write which one is correct for this data and why. Do not reply with only SQL.');
+  }
+  if (/revenue|sales|total|sum|amount|price|spend|spent|earn|average|\bavg\b|cost/.test(q)) {
+    out.push('Put ROUND(..., 2) around every money or average value in the query.');
+    out.push('After the query, write which statuses the total counts. A plain total includes cancelled and pending rows, and a view may already filter them. Offer a completed-only version.');
+  }
+  if (/review|check|wrong|fix|bug|problem|improve|optimi[sz]e|explain this query|correct/.test(q)) {
+    out.push('Look for: a WHERE on the right-hand table of a LEFT JOIN (it makes the join an INNER JOIN; move the condition into ON), GROUP BY a name instead of the id (different people share a name), COUNT(*) inflated by a one-to-many join, and NULLs.');
+    out.push('Finish with ONE complete corrected query in a single ```sql block that differs from the original. Never repeat the original unchanged.');
+  }
+  if (/how many|count|number of|per |each /.test(q)) {
+    out.push('Joining a one-to-many table (order_items to orders) repeats rows: count parent rows with COUNT(DISTINCT parent_id). Group by the id, not the name.');
+  }
+  if (/\band their\b|\bwith their\b|\balong with\b/.test(q)) {
+    out.push('Use LEFT JOIN, not JOIN, when the foreign key column allows NULL, or those rows silently disappear.');
+  }
+  return out;
+}
+
 /** Builds the messages for one question: the system prompt, a few earlier turns, and the question with fresh context. */
 export function buildMessages(input: PromptInput): ChatMessage[] {
   const blocks: string[] = [`<schema_context>\n${input.context}\n</schema_context>`];
@@ -75,6 +105,8 @@ export function buildMessages(input: PromptInput): ChatMessage[] {
     blocks.push(`<sample_rows query=${JSON.stringify(input.sample.query)} showing="${s.sentRows} of ${s.totalRows} rows">${note}\n${sampleToText(s)}\n</sample_rows>`);
   }
   blocks.push(`QUESTION:\n${input.question}`);
+  const reminders = remindersFor(input.question, input.engine);
+  if (reminders.length) blocks.push(`REMINDERS FOR THIS QUESTION:\n${reminders.map((r) => '- ' + r).join('\n')}`);
   return [{ role: 'system', content: systemPrompt(input.engine) }, ...input.history.slice(-8), { role: 'user', content: blocks.join('\n\n') }];
 }
 
@@ -86,6 +118,14 @@ export function extractSql(reply: string): string[] {
     if (/^(select|with|explain)\b/i.test(text)) out.push(text.replace(/;\s*$/, ''));
   }
   return out;
+}
+
+/** The reply without its runnable SQL blocks, which the chat shows separately with a Run button. Other code blocks stay. */
+export function stripSqlBlocks(reply: string): string {
+  return reply
+    .replace(/```(?:sql|mysql|postgresql|postgres|tsql|sqlite)?\s*\n([\s\S]*?)```/gi, (whole, body: string) => (/^(select|with|explain)\b/i.test(body.trim()) ? '' : whole))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /** True when the developer's message is mostly a SQL query, so the assistant should explain it. */

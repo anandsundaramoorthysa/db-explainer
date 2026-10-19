@@ -27,3 +27,4 @@ test-output/**
 *.log
 *.bak
 vitest.integration.config.ts
+vitest.live.config.ts

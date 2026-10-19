@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Conversation } from './chat/conversation';
+import { stripSqlBlocks } from './ai/prompt';
 import { renderMarkdown } from './render';
 import { SourceManager } from './sources';
 import { QueryResult } from './types';
@@ -133,7 +134,7 @@ export class ChatPanel {
     this.post({ type: 'thinking', on: true });
     try {
       const a = await this.conversation.ask(source, text);
-      this.post({ type: 'answer', html: renderMarkdown(a.text), sql: a.sql, tables: a.tables, statsUsed: a.statsUsed, canRun: !!source.connector });
+      this.post({ type: 'answer', html: renderMarkdown(stripSqlBlocks(a.text)), sql: a.sql, tables: a.tables, statsUsed: a.statsUsed, canRun: !!source.connector });
     } catch (e) {
       this.post({ type: 'error', text: (e as Error).message });
     } finally {
@@ -164,7 +165,7 @@ export class ChatPanel {
     this.post({ type: 'thinking', on: true });
     try {
       const a = await this.conversation.explainRows(source, run.sql, run.result);
-      this.post({ type: 'answer', html: renderMarkdown(a.text), sql: a.sql, tables: a.tables, statsUsed: a.statsUsed, canRun: !!source.connector });
+      this.post({ type: 'answer', html: renderMarkdown(stripSqlBlocks(a.text)), sql: a.sql, tables: a.tables, statsUsed: a.statsUsed, canRun: !!source.connector });
     } catch (e) {
       this.post({ type: 'error', text: (e as Error).message });
     } finally {

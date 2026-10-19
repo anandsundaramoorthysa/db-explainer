@@ -17,8 +17,10 @@ describe('what Dex is told, so its SQL is right', () => {
 
   it('never lets it guess the capitalisation of a value, and says how each dialect compares text', () => {
     expect(p).toContain('Never guess the spelling or capitalisation of a value');
-    expect(p).toContain("In SQLite, = on text is case-sensitive, so 'Cancelled' does not match 'cancelled'");
-    expect(systemPrompt('postgres')).toContain('In PostgreSQL, = on text is case-sensitive');
+    expect(p).toContain('case-sensitive in SQLite');
+    expect(p).toContain("LOWER(col) = 'lowercase text'");
+    expect(p).not.toContain('Cancelled');
+    expect(systemPrompt('postgres')).toContain('case-sensitive in PostgreSQL');
     expect(systemPrompt('mysql')).toContain('collation');
     expect(systemPrompt('mssql')).toContain('collation');
     expect(p).toContain('SELECT DISTINCT');
@@ -118,5 +120,95 @@ describe('the accuracy test database', () => {
     expect(text).toContain('customer_id INT');
     expect(text).toMatch(/customer_id 1 of 14 NULL/);
     expect(text).not.toMatch(/Asha Raman|asha\.r@example/);
+  });
+});
+
+import { lintSql } from '../src/ai/lint';
+import { stripSqlBlocks } from '../src/ai/prompt';
+import { importSql } from '../src/importer/sqlText';
+
+describe('checks on the SQL Dex writes', () => {
+  const model = importSql(fs.readFileSync(path.join(root, 'test', 'fixtures', 'db', 'accuracy.sql'), 'utf8'), 'acc').model;
+
+  it('warns when NOT IN reads a column that allows NULL', () => {
+    const w = lintSql(model, "SELECT * FROM customers WHERE customer_id NOT IN (SELECT customer_id FROM orders WHERE status = 'cancelled')");
+    expect(w).toHaveLength(1);
+    expect(w[0]).toContain('orders.customer_id');
+    expect(w[0]).toContain('NOT EXISTS');
+  });
+
+  it('is quiet when the subquery column cannot be NULL, or NOT EXISTS is used', () => {
+    expect(lintSql(model, 'SELECT * FROM customers WHERE customer_id NOT IN (SELECT order_id FROM orders)')).toEqual([]);
+    expect(lintSql(model, 'SELECT * FROM customers c WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id)')).toEqual([]);
+    expect(lintSql(model, 'SELECT * FROM customers WHERE name NOT IN (SELECT name FROM nowhere)')).toEqual([]);
+  });
+
+  it('handles qualified columns and ignores text inside strings and comments', () => {
+    expect(lintSql(model, 'SELECT * FROM customers c WHERE c.customer_id NOT IN (SELECT DISTINCT o.customer_id FROM orders o)')).toHaveLength(1);
+    expect(lintSql(model, "SELECT 'x NOT IN (SELECT customer_id FROM orders)' FROM customers -- y NOT IN (SELECT customer_id FROM orders)")).toEqual([]);
+  });
+
+  it('removes runnable SQL from the text, because the chat shows it in its own block with a Run button', () => {
+    const reply = 'It counts.\n```sql\nSELECT 1;\n```\nNote:\n```js\nconsole.log(1)\n```';
+    expect(stripSqlBlocks(reply)).toBe('It counts.\n\nNote:\n```js\nconsole.log(1)\n```');
+  });
+
+  it('adds the warning to what the developer reads, but keeps it out of the conversation history sent to the AI', async () => {
+    const SQL = await initSqlJs({ locateFile: (f: string) => path.join(root, 'node_modules', 'sql.js', 'dist', f) });
+    const db = new SQL.Database();
+    db.run(fs.readFileSync(path.join(root, 'test', 'fixtures', 'db', 'accuracy.sql'), 'utf8'));
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dbx-lint-')), 'a.db');
+    fs.writeFileSync(file, Buffer.from(db.export()));
+    const connector = openConnector({ id: 'a', name: 'a.db', engine: 'sqlite', filePath: file }, undefined, { assetsDir: path.join(root, 'out') });
+    const source: Source = { id: 'a', label: 'a.db', model: await connector.introspect(), connector };
+    const seen: ChatMessage[][] = [];
+    const reply = "Here you go.\n```sql\nSELECT * FROM customers WHERE customer_id NOT IN (SELECT customer_id FROM orders WHERE status = 'cancelled')\n```";
+    const c = new Conversation({ ai: async (m) => (seen.push(m), reply), notes: () => '', limits: () => ({ maxRows: 100, timeoutMs: 10000 }), maxTables: () => 12, sampleRows: () => 5 });
+    const a = await c.ask(source, 'customers with no cancelled orders');
+    expect(a.text).toContain('Check before you run this');
+    expect(a.text).toContain('orders.customer_id');
+    await c.ask(source, 'thanks');
+    const earlier = seen[1].find((m) => m.role === 'assistant')!;
+    expect(earlier.content).toBe(reply);
+  });
+});
+
+describe('checks on a pasted or written query', () => {
+  const model = importSql(fs.readFileSync(path.join(root, 'test', 'fixtures', 'db', 'accuracy.sql'), 'utf8'), 'acc').model;
+  const broken = "SELECT c.name, COUNT(*) FROM customers c LEFT JOIN orders o ON o.customer_id = c.customer_id WHERE o.status = 'completed' GROUP BY c.name";
+
+  it('finds both problems in the review query: the WHERE that undoes the LEFT JOIN, and grouping by name', () => {
+    const w = lintSql(model, broken);
+    expect(w).toHaveLength(2);
+    expect(w.join('\n')).toContain('`o.status` removes the rows that the LEFT JOIN kept');
+    expect(w.join('\n')).toContain('Grouping by `customers.name` merges different rows that share the same name');
+  });
+
+  it('is quiet on the corrected query', () => {
+    expect(lintSql(model, "SELECT c.customer_id, c.name, COUNT(o.order_id) FROM customers c LEFT JOIN orders o ON o.customer_id = c.customer_id AND o.status = 'completed' GROUP BY c.customer_id, c.name")).toEqual([]);
+  });
+
+  it('does not flag an anti-join, a condition on the left table, or grouping by a non-name column', () => {
+    expect(lintSql(model, 'SELECT c.name FROM customers c LEFT JOIN orders o ON o.customer_id = c.customer_id WHERE o.order_id IS NULL')).toEqual([]);
+    expect(lintSql(model, "SELECT c.country, COUNT(*) FROM customers c LEFT JOIN orders o ON o.customer_id = c.customer_id WHERE c.country = 'India' GROUP BY c.country")).toEqual([]);
+  });
+
+  it('skips queries with subqueries, which it cannot read safely', () => {
+    expect(lintSql(model, "SELECT name FROM customers WHERE customer_id IN (SELECT o.customer_id FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id WHERE c.country = 'x') GROUP BY name")).toEqual([]);
+  });
+
+  it('reports problems in the developer\'s pasted query under its own heading', async () => {
+    const SQL = await initSqlJs({ locateFile: (f: string) => path.join(root, 'node_modules', 'sql.js', 'dist', f) });
+    const db = new SQL.Database();
+    db.run(fs.readFileSync(path.join(root, 'test', 'fixtures', 'db', 'accuracy.sql'), 'utf8'));
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dbx-paste-')), 'a.db');
+    fs.writeFileSync(file, Buffer.from(db.export()));
+    const connector = openConnector({ id: 'a', name: 'a.db', engine: 'sqlite', filePath: file }, undefined, { assetsDir: path.join(root, 'out') });
+    const source: Source = { id: 'a', label: 'a.db', model: await connector.introspect(), connector };
+    const c = new Conversation({ ai: async () => 'It counts orders.', notes: () => '', limits: () => ({ maxRows: 100, timeoutMs: 10000 }), maxTables: () => 12, sampleRows: () => 5 });
+    const a = await c.ask(source, broken);
+    expect(a.text).toContain('**Problems found in your query**');
+    expect(a.text).toContain('LEFT JOIN kept');
+    expect(a.text).not.toContain('Check before you run this');
   });
 });

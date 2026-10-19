@@ -1,4 +1,5 @@
 import { ChatMessage } from '../ai/client';
+import { lintSql } from '../ai/lint';
 import { maskSample, MaskedSample } from '../ai/mask';
 import { buildMessages, extractSql, looksLikeQuery } from '../ai/prompt';
 import { Connector } from '../db/connector';
@@ -87,7 +88,15 @@ export class Conversation {
     const messages = buildMessages({ engine: source.model.engine, question: asked, context: ctx.text, sharedSql: source.sharedSql, history: this.history, sample });
     const text = await this.deps.ai(messages);
     this.history.push({ role: 'user', content: asked }, { role: 'assistant', content: text });
-    return { text, sql: extractSql(text), tables: ctx.tables, statsUsed: stats.size > 0 };
+    const sql = extractSql(text);
+    const pasted = looksLikeQuery(question) ? lintSql(source.model, asked.replace(/^[\s\S]*?```sql\s*\n|\n?```\s*$/g, '')) : [];
+    const warnings = [...new Set(sql.flatMap((s) => lintSql(source.model, s)))].filter((w) => !pasted.includes(w));
+    const checks = [
+      pasted.length ? `**Problems found in your query** (checked against the schema):\n${pasted.map((w) => '- ' + w).join('\n')}` : '',
+      warnings.length ? `**Check before you run this:**\n${warnings.map((w) => '- ' + w).join('\n')}` : '',
+    ].filter(Boolean);
+    const shown = checks.length ? `${text}\n\n${checks.join('\n\n')}` : text;
+    return { text: shown, sql, tables: ctx.tables, statsUsed: stats.size > 0 };
   }
 
   /** Runs a query for the developer after the guard has checked it. The AI is not involved and never sees the rows. */

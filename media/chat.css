@@ -12,6 +12,7 @@ button.ghost { color: var(--vscode-foreground); background: transparent; border:
 button.ghost:hover { background: var(--vscode-toolbar-hoverBackground); }
 :focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .banner { margin: 8px 12px 0; padding: 6px 10px; border-radius: 3px; background: var(--vscode-inputValidation-infoBackground); border: 1px solid var(--vscode-inputValidation-infoBorder); }
+.banner button { margin-left: 4px; }
 .banner.warn { background: var(--vscode-inputValidation-warningBackground); border-color: var(--vscode-inputValidation-warningBorder); }
 main { flex: 1; overflow-y: auto; padding: 12px; }
 .msg { margin: 0 0 14px; max-width: 100%; }

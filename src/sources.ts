@@ -24,12 +24,23 @@ export class SourceManager {
 
   constructor(private readonly assetsDir: string) {}
 
-  onDidChange(l: Listener): void {
+  /** Returns a function that removes the listener again. */
+  onDidChange(l: Listener): () => void {
     this.listeners.push(l);
+    return () => {
+      this.listeners = this.listeners.filter((x) => x !== l);
+    };
   }
 
   private fire(): void {
-    this.listeners.forEach((l) => l());
+    // One broken listener (for example a closed panel) must not stop the others.
+    for (const l of [...this.listeners]) {
+      try {
+        l();
+      } catch {
+        /* ignored */
+      }
+    }
   }
 
   list(): Array<Source & { kind: 'live' | 'sql'; profile?: ConnectionProfile }> {

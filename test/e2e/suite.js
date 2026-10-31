@@ -47,7 +47,7 @@ exports.run = async function run() {
   assert.ok(api && api.sources && api.ChatPanel, 'extension exposes its test hooks');
 
   const commands = await vscode.commands.getCommands(true);
-  for (const id of ['openChat', 'addConnection', 'connect', 'disconnect', 'removeConnection', 'refresh', 'shareSql', 'askAboutTable', 'addNote', 'openNotes', 'ai.setKey', 'ai.clearKey', 'ai.test']) {
+  for (const id of ['openChat', 'addConnection', 'connect', 'disconnect', 'removeConnection', 'refresh', 'shareSql', 'askAboutTable', 'addNote', 'openNotes', 'ai.setKey', 'ai.clearKey', 'ai.test', 'ai.manage', 'ai.switch', 'ai.changeKey']) {
     assert.ok(commands.includes('dbExplainer.' + id), 'command registered: ' + id);
   }
 
@@ -145,6 +145,33 @@ exports.run = async function run() {
   // The AI test command talks to the mock service.
   await vscode.commands.executeCommand('dbExplainer.ai.test');
   assert.ok(ai.requests.length >= 3);
+
+  // AI profiles. With none saved everything above used the old settings; now a profile takes over, with its own key and model.
+  await api.profiles.save({ id: 'e2e-ai', label: 'Mock', provider: 'custom', baseUrl: `http://127.0.0.1:${ai.port}/v1`, model: 'profile-model' }, 'sk-test-profile-key-0000');
+  at = seen.length;
+  const before3 = ai.requests.length;
+  await panel.handle({ type: 'ask', text: 'how many customers are there?' });
+  await waitFor('answer', at);
+  assert.strictEqual(ai.requests[before3].auth, 'Bearer sk-test-profile-key-0000', 'the profile\x27s key is sent as a bearer token');
+  assert.strictEqual(ai.requests[before3].body.model, 'profile-model');
+
+  // A key typed into the chat is never sent, never reaches the history, and the transcript line is blanked.
+  at = seen.length;
+  const before4 = ai.requests.length;
+  await panel.handle({ type: 'ask', text: 'gsk_abcdefghijklmnopqrstuvwxyz123456' });
+  await waitFor('redactLast', at);
+  await sleep(300);
+  assert.strictEqual(ai.requests.length, before4, 'nothing was sent to the AI service');
+  at = seen.length;
+  await panel.handle({ type: 'ask', text: 'and how many products?' });
+  await waitFor('answer', at);
+  assert.ok(!JSON.stringify(ai.requests.at(-1).body).includes('gsk_abcdefghijkl'), 'the key is not in the conversation history either');
+
+  // The Manage AI Keys page opens, and the test command uses the profile.
+  await vscode.commands.executeCommand('dbExplainer.ai.manage');
+  await until(() => vscode.window.tabGroups.all.flatMap((g) => g.tabs).some((t) => t.label === 'Manage AI Keys'), 'the keys tab');
+  await vscode.commands.executeCommand('dbExplainer.ai.test');
+  await api.profiles.remove('e2e-ai');
 
   await vscode.commands.executeCommand('dbExplainer.disconnect', { kind: 'connection', profile });
   assert.ok(!api.sources.isConnected('e2e'));

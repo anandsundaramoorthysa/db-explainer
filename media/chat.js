@@ -44,10 +44,16 @@
     if (!sources.length) parts.push('Nothing is shared yet. Use the DB Explainer sidebar to add a database connection, or right-click a .sql file and choose "Share SQL With the Chat".');
     if (active && active.kind === 'sql') parts.push('This is shared SQL, so there is no data. You can ask about the structure and ask for queries, but not run them.');
     if (active && active.warnings.length) parts.push(active.warnings.length + ' statement(s) could not be read fully; the AI still sees the original text.');
-    if (!aiReady) parts.push('No AI model is set up. Set dbExplainer.ai.model in settings and run "DB Explainer: AI: Set API Key" if your service needs one.');
+    if (!aiReady) parts.push('No AI is set up yet. Add a free Groq or Gemini key to start asking questions.');
     banner.hidden = !parts.length;
     banner.className = 'banner' + (!aiReady ? ' warn' : '');
     banner.textContent = parts.join(' ');
+    if (!aiReady) {
+      const b = el('button', '', 'Add an AI key');
+      b.type = 'button';
+      b.onclick = () => vscode.postMessage({ type: 'manageAi' });
+      banner.append(' ', b);
+    }
   }
 
   function renderSources() {
@@ -145,6 +151,7 @@
         break;
       }
       case 'error': { const x = add('error', 'DB Explainer'); x.body.textContent = m.text; scrollDown(); break; }
+      case 'redactLast': { const users = log.querySelectorAll('.msg.user .body'); if (users.length) users[users.length - 1].textContent = m.text; break; }
       case 'notice': { banner.hidden = false; banner.className = 'banner'; banner.textContent = m.text; break; }
       case 'prefill': input.value = m.text; if (m.send) submit(); else input.focus(); break;
     }

@@ -7,15 +7,16 @@ DB Explainer collects no personal data and has no telemetry or analytics.
 | What | Where | Why |
 |---|---|---|
 | Saved connections (host, port, database, user, file path; no password) | VS Code global state. It can sync through Settings Sync if you have that turned on | List your databases |
-| Database passwords and your AI API key | VS Code secret storage | Connect and call your AI service |
+| AI profiles (label, provider, address, model, expiry date; no key) | VS Code global state | List your AI services |
+| Database passwords and each AI profile's API key | VS Code secret storage, never settings | Connect and call your AI service |
 | The AI hosts you allowed | VS Code global state | Ask once before sending to a host that is not on your computer |
 | Team notes | `.dbexplainer/notes.md` in your workspace (path is a setting) | Shared meaning of tables and values |
 
-Remove a connection from the sidebar to delete its saved details and password. Use **DB Explainer: AI: Clear API Key** to remove the key.
+Remove a connection from the sidebar to delete its saved details and password. Delete a profile in **Manage AI Keys** to remove its key, or use **DB Explainer: Remove API Key** for the one in use. A key you paste into the chat is not sent, not kept in the conversation and not saved in the notes.
 
 ## What is sent to your AI service
 
-Each question sends one request to the service at `dbExplainer.ai.baseUrl`. It contains:
+Each question sends one request to the service of the profile in use (or the one at `dbExplainer.ai.baseUrl` if you have no profiles). If you turn on `dbExplainer.ai.fallback` and that service answers 401, 429 or 503, the same request goes to the next valid profile instead, and you are asked to allow its host first. Expired keys are never used. It contains:
 
 - your question and the recent conversation
 - names, types, keys and indexes of the tables relevant to the question, and a list of all table names

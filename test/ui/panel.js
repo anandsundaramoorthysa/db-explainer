@@ -46,7 +46,9 @@ async function launch() {
   await send({ type: 'state', sources: [], activeId: undefined, aiReady: false });
   await settle();
   const banner = await page.textContent('#banner');
-  assert.ok(/Nothing is shared yet/.test(banner) && /No AI model/.test(banner));
+  assert.ok(/Nothing is shared yet/.test(banner) && /No AI/.test(banner));
+  await page.click('#banner button:has-text("Add an AI key")');
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'manageAi' });
 
   // A live database and a shared script appear in the selector.
   await send({ type: 'state', aiReady: true, activeId: 'a', sources: [
@@ -118,6 +120,11 @@ async function launch() {
   await page.fill('.noterow input', 'orders are in rupees');
   await page.click('text=Save note');
   assert.deepStrictEqual((await sent()).at(-1), { type: 'note', text: 'orders are in rupees', table: 'orders' });
+
+  // A message the extension refused to send because it held an API key is blanked in the transcript.
+  await send({ type: 'redactLast', text: '[API key removed. It was not sent.]' });
+  await settle();
+  assert.strictEqual(await page.locator('.msg.user .body').last().textContent(), '[API key removed. It was not sent.]');
 
   // Errors, notices, prefilled questions, and a new chat.
   await send({ type: 'error', text: 'Could not reach the AI service.' });

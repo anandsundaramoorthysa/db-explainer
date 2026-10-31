@@ -1,11 +1,16 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { AiConfig, AiError, chat, isLocalUrl, listModels, normalizeBaseUrl } from './ai/client';
+import { AiConfig, AiError, isLocalUrl } from './ai/client';
+import { dayStamp, expiryWarnings, isValidDate, preset, ProfileStore } from './ai/profiles';
+import { AiService } from './ai/service';
+import { changeKey } from './changeKey';
 import { Conversation } from './chat/conversation';
 import { ConnectionStore, promptForConnection } from './connections';
+import { KeysDeps, KeysPanel } from './keysPanel';
 import { readNotes, saveNote } from './notes';
 import { ChatPanel } from './panel';
 import { SourceManager } from './sources';
+import { AiStatusBar, SWITCH, switchProfile } from './statusBar';
 import { DatabaseTree, Node } from './tree';
 
 const KEY_SECRET = 'dbExplainer.ai.key';
@@ -41,9 +46,9 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(vscode.window.registerTreeDataProvider('dbExplainer.connections', tree), { dispose: () => void sources.disposeAll() });
 
   /** The first time data is sent to a host that is not on this computer, the developer says yes or no once. */
-  async function allowHost(cfg: AiConfig): Promise<void> {
-    if (isLocalUrl(cfg.baseUrl)) return;
-    const host = new URL(cfg.baseUrl).host;
+  async function allowHost(baseUrl: string): Promise<void> {
+    if (isLocalUrl(baseUrl)) return;
+    const host = new URL(baseUrl).host;
     const allowed = context.globalState.get<string[]>(HOSTS_KEY, []);
     if (allowed.includes(host)) return;
     const pick = await vscode.window.showWarningMessage(
@@ -55,13 +60,36 @@ export async function activate(context: vscode.ExtensionContext) {
     await context.globalState.update(HOSTS_KEY, [...allowed, host]);
   }
 
+  // AI profiles: metadata in extension state, keys only in secret storage. With no profiles the old dbExplainer.ai.* settings and
+  // the old single key are used exactly as before.
+  const profiles = new ProfileStore(context.globalState, context.secrets);
+  const ai = new AiService({
+    store: profiles,
+    legacy: aiConfig,
+    legacyKey: () => context.secrets.get(KEY_SECRET),
+    fallback: () => settings().get<boolean>('ai.fallback', false),
+    allowHost,
+    notice: (text) => ChatPanel.current?.notice(text),
+  });
+  const keysDeps: KeysDeps = {
+    store: profiles,
+    service: ai,
+    fallback: () => settings().get<boolean>('ai.fallback', false),
+    setFallback: (on) => settings().update('ai.fallback', on, vscode.ConfigurationTarget.Global),
+    legacy: aiConfig,
+  };
+
+  // A rejected key is fixed in one click from the message itself. Shown at most every 30 seconds, since one question can fail twice.
+  let lastToast = 0;
   const conversation = new Conversation({
-    ai: async (messages) => {
-      const cfg = aiConfig();
-      normalizeBaseUrl(cfg.baseUrl, false);
-      await allowHost(cfg);
-      return chat(cfg, await context.secrets.get(KEY_SECRET), messages);
-    },
+    ai: (messages) =>
+      ai.chat(messages).catch((e) => {
+        if (e instanceof AiError && e.code === 'auth' && profiles.active() && Date.now() - lastToast > 30_000) {
+          lastToast = Date.now();
+          void vscode.window.showErrorMessage(e.message, 'Change key').then((pick) => pick && vscode.commands.executeCommand('dbExplainer.ai.changeKey'));
+        }
+        throw e;
+      }),
     notes: () => {
       const f = notesFile();
       return f ? readNotes(f) : '';
@@ -73,12 +101,22 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const openChat = (): ChatPanel =>
     ChatPanel.open(context, sources, conversation, {
-      aiReady: () => !!aiConfig().model.trim(),
+      aiReady: () => ai.ready(),
       saveNote: async (text, table) => {
         const f = notesFile();
         if (!f) throw new Error('Open a folder first: the team notes file lives in your workspace.');
         saveNote(f, text, table);
       },
+      keyPasted: async (found) => {
+        const what = `${found.provider ? `${preset(found.provider).name} ` : ''}API key`;
+        const pick = await vscode.window.showInformationMessage(
+          `That looks like ${/^[aeiou]/i.test(what) ? 'an' : 'a'} ${what}, so it was not sent to the AI. If it came from a shared chat or screen, consider revoking it. Save it as a profile?`,
+          'Save as profile',
+          'No thanks',
+        );
+        if (pick === 'Save as profile') KeysPanel.open(context, keysDeps, found);
+      },
+      manageAi: () => KeysPanel.open(context, keysDeps, undefined, true),
     });
 
   const connectProfile = async (id: string): Promise<void> => {
@@ -215,35 +253,99 @@ export async function activate(context: vscode.ExtensionContext) {
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(f));
   });
 
-  reg('dbExplainer.ai.setKey', async () => {
-    const key = await vscode.window.showInputBox({ prompt: 'API key for your AI service. It is kept in VS Code secret storage and sent only to the base URL you configured.', password: true, ignoreFocusOut: true });
-    if (key === undefined) return;
-    if (key.trim()) await context.secrets.store(KEY_SECRET, key.trim());
-    else await context.secrets.delete(KEY_SECRET);
-    openChat().pushState();
-  });
+  // Changing a key is one path whoever asks: the command, the status bar, the Manage page or the "key rejected" message.
+  const changeKeyNow = (id?: string): Promise<void> =>
+    changeKey(
+      {
+        store: profiles,
+        service: ai,
+        promptKey: (forWhat) => vscode.window.showInputBox({ title: 'Change API key', prompt: `New API key for ${forWhat}. Kept in VS Code secret storage.`, password: true, ignoreFocusOut: true, validateInput: (v) => (/\s/.test(v.trim()) ? 'A key cannot contain spaces' : undefined) }),
+        promptDate: (current) => vscode.window.showInputBox({ title: 'Change API key', prompt: 'New expiry date, YYYY-MM-DD. Leave empty to remove it, Escape to keep it.', value: current, ignoreFocusOut: true, validateInput: (v) => (!v.trim() || isValidDate(v.trim()) ? undefined : 'Use the form YYYY-MM-DD') }),
+        setLegacyKey: (key) => context.secrets.store(KEY_SECRET, key),
+        report: (ok, text, pid) => {
+          void (ok ? vscode.window.showInformationMessage(text) : vscode.window.showErrorMessage(text));
+          if (pid) void KeysPanel.current?.showTest(pid, ok, text);
+          ChatPanel.current?.pushState();
+        },
+      },
+      id,
+    );
+
+  // These three act on the profile in use, or on the old single key when there are no profiles.
+  reg('dbExplainer.ai.setKey', () => changeKeyNow());
+  reg('dbExplainer.ai.changeKey', (id?: unknown) => changeKeyNow(typeof id === 'string' ? id : undefined));
 
   reg('dbExplainer.ai.clearKey', async () => {
-    await context.secrets.delete(KEY_SECRET);
+    const p = profiles.active();
+    const sure = await vscode.window.showWarningMessage(`Remove the saved API key${p ? ` for "${p.label}"` : ''}?`, { modal: true }, 'Remove');
+    if (sure !== 'Remove') return;
+    if (p) await profiles.setKey(p.id, '');
+    else await context.secrets.delete(KEY_SECRET);
     void vscode.window.showInformationMessage('API key removed.');
   });
 
   reg('dbExplainer.ai.test', async () => {
-    try {
-      const cfg = aiConfig();
-      normalizeBaseUrl(cfg.baseUrl, false);
-      await allowHost(cfg);
-      const models = await listModels(cfg, await context.secrets.get(KEY_SECRET));
-      void vscode.window.showInformationMessage(`The AI service answered. ${models.length} model(s) available${cfg.model && !models.includes(cfg.model) && models.length ? `; "${cfg.model}" is not in the list` : ''}.`);
-    } catch (e) {
-      void vscode.window.showErrorMessage((e as Error).message);
-    }
+    const r = await ai.test(profiles.active()?.id);
+    void (r.ok ? vscode.window.showInformationMessage(r.message) : vscode.window.showErrorMessage(r.message));
   });
 
-  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration('dbExplainer') && ChatPanel.current?.pushState()));
+  reg('dbExplainer.ai.manage', (startAdd?: unknown) => KeysPanel.open(context, keysDeps, undefined, startAdd === true));
+  reg(SWITCH, () => switchProfile(profiles));
+
+  const statusBar = new AiStatusBar(profiles, aiConfig);
+  context.subscriptions.push(statusBar);
+
+  /** Warns once a day per key that is about to expire or already has. Expired keys are skipped elsewhere, this only tells the developer. */
+  let warning = false;
+  const warnAboutExpiry = async (): Promise<void> => {
+    // Two calls close together must not both toast, so only one runs at a time.
+    if (warning) return;
+    warning = true;
+    try {
+      const now = new Date();
+      const today = dayStamp(now);
+      const done = profiles.warnedToday(today);
+      const w = expiryWarnings(profiles.list(), now, done);
+      if (!w.ids.length) return;
+      for (const id of w.ids) done.add(id);
+      await profiles.markWarned(today, done);
+      void vscode.window.showWarningMessage(w.messages.join('\n'), 'Change key', 'Manage AI Keys').then((pick) => {
+        if (pick === 'Change key') void vscode.commands.executeCommand(w.ids.length === 1 ? 'dbExplainer.ai.changeKey' : 'dbExplainer.ai.manage', ...(w.ids.length === 1 ? [w.ids[0]] : []));
+        else if (pick) void vscode.commands.executeCommand('dbExplainer.ai.manage');
+      });
+    } finally {
+      warning = false;
+    }
+  };
+  const refreshAi = (): void => {
+    statusBar.update();
+    ChatPanel.current?.pushState();
+  };
+  context.subscriptions.push({
+    dispose: profiles.onChange(() => {
+      refreshAi();
+      void warnAboutExpiry();
+    }),
+  });
+  void warnAboutExpiry();
+  // A key can cross its expiry date while VS Code stays open, so look again every hour.
+  const hourly = setInterval(() => {
+    refreshAi();
+    void KeysPanel.current?.push();
+    void warnAboutExpiry();
+  }, 60 * 60 * 1000);
+  context.subscriptions.push({ dispose: () => clearInterval(hourly) });
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration('dbExplainer')) return;
+      refreshAi();
+      void KeysPanel.current?.push();
+    }),
+  );
 
   // What the end-to-end test drives. Nothing in the normal user interface depends on it.
-  return { sources, store, conversation, ChatPanel };
+  return { sources, store, conversation, ChatPanel, ai, profiles };
 }
 
 export function deactivate(): void {}

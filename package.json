@@ -2,7 +2,7 @@
   "name": "db-explainer",
   "displayName": "DB Explainer",
   "description": "Understand any database by chatting with it. Connect read-only or paste SQL, then ask in plain English, get SQL written, explained and run safely. You bring your own AI key.",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "publisher": "AnandSundaramoorthySa",
   "author": {
     "name": "Anand Sundaramoorthy SA"
@@ -120,18 +120,34 @@
         "category": "DB Explainer"
       },
       {
+        "command": "dbExplainer.ai.manage",
+        "title": "Manage AI Keys",
+        "category": "DB Explainer",
+        "icon": "$(key)"
+      },
+      {
+        "command": "dbExplainer.ai.switch",
+        "title": "Switch AI Profile",
+        "category": "DB Explainer"
+      },
+      {
         "command": "dbExplainer.ai.setKey",
-        "title": "AI: Set API Key",
+        "title": "Change API Key",
+        "category": "DB Explainer"
+      },
+      {
+        "command": "dbExplainer.ai.changeKey",
+        "title": "Change API Key",
         "category": "DB Explainer"
       },
       {
         "command": "dbExplainer.ai.clearKey",
-        "title": "AI: Clear API Key",
+        "title": "Remove API Key",
         "category": "DB Explainer"
       },
       {
         "command": "dbExplainer.ai.test",
-        "title": "AI: Test Connection",
+        "title": "Test AI Connection",
         "category": "DB Explainer"
       }
     ],
@@ -156,7 +172,7 @@
     "viewsWelcome": [
       {
         "view": "dbExplainer.connections",
-        "contents": "Connect to a database, or share some SQL, then ask questions about it in plain English.\n[Add a database connection](command:dbExplainer.addConnection)\n[Open the chat](command:dbExplainer.openChat)\n[Share the open SQL file](command:dbExplainer.shareSql)"
+        "contents": "Connect to a database, or share some SQL, then ask questions about it in plain English.\n[Set up AI](command:dbExplainer.ai.manage)\n[Add a database connection](command:dbExplainer.addConnection)\n[Open the chat](command:dbExplainer.openChat)\n[Share the open SQL file](command:dbExplainer.shareSql)"
       }
     ],
     "menus": {
@@ -248,12 +264,17 @@
         "dbExplainer.ai.baseUrl": {
           "type": "string",
           "default": "http://localhost:11434/v1",
-          "markdownDescription": "Base URL of any OpenAI-compatible chat API. Examples: `http://localhost:11434/v1` (Ollama), `http://localhost:1234/v1` (LM Studio), `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`."
+          "markdownDescription": "Used only until you add a profile in **DB Explainer: Manage AI Keys**. Base URL of any OpenAI-compatible chat API. Examples: `http://localhost:11434/v1` (Ollama), `http://localhost:1234/v1` (LM Studio), `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`."
         },
         "dbExplainer.ai.model": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Model name to request, for example `qwen2.5-coder:7b` or `gpt-4o-mini`."
+          "markdownDescription": "Used only until you add a profile in **DB Explainer: Manage AI Keys**. Model name to request, for example `qwen2.5-coder:7b` or `gpt-4o-mini`."
+        },
+        "dbExplainer.ai.fallback": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "When the profile in use answers 401, 429 or 503, try the next valid profile instead of stopping. Expired keys are always skipped. Your table and column names are then sent to that profile's service, and you are asked to allow it the first time. API keys are never stored in settings: they live in VS Code secret storage."
         },
         "dbExplainer.ai.maxTokens": {
           "type": "number",
@@ -338,11 +359,12 @@
           {
             "id": "ai",
             "title": "Bring your own AI",
-            "description": "Set the model and key of the AI service you use. They stay on your machine.\n[Set API key](command:dbExplainer.ai.setKey)",
+            "description": "Add a profile for Gemini, Groq, OpenRouter, OpenAI, Claude or Ollama. Keys stay in VS Code secret storage on your machine.\n[Manage AI keys](command:dbExplainer.ai.manage)",
             "media": {
               "markdown": "media/walkthrough/ai.md"
             },
             "completionEvents": [
+              "onCommand:dbExplainer.ai.manage",
               "onCommand:dbExplainer.ai.setKey"
             ]
           },
@@ -369,7 +391,7 @@
     "pretest": "node esbuild.js",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:ui": "node test/ui/panel.js",
+    "test:ui": "node test/ui/panel.js && node test/ui/keys.js",
     "test:e2e": "node test/e2e/runTest.js",
     "package": "vsce package --no-dependencies"
   },

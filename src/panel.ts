@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { Conversation } from './chat/conversation';
 import { stripSqlBlocks } from './ai/prompt';
+import { detectApiKey } from './ai/keyScan';
+import { Provider } from './ai/profiles';
 import { renderMarkdown } from './render';
 import { SourceManager } from './sources';
 import { QueryResult } from './types';
@@ -8,6 +10,10 @@ import { QueryResult } from './types';
 export interface PanelHooks {
   aiReady: () => boolean;
   saveNote: (text: string, table?: string) => Promise<void>;
+  /** Called with a key that was typed into the chat. It was not sent, and the hook may offer to save it as a profile. */
+  keyPasted: (found: { key: string; provider?: Provider }) => void;
+  /** Opens Manage AI Keys with the Add form already open. */
+  manageAi: () => void;
 }
 
 interface Inbound {
@@ -60,8 +66,9 @@ export class ChatPanel {
     panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.png');
     panel.webview.html = this.html(context);
     panel.webview.onDidReceiveMessage((m: Inbound) => void this.handle(m));
-    sources.onDidChange(() => this.pushState());
+    const off = sources.onDidChange(() => this.pushState());
     panel.onDidDispose(() => {
+      off();
       ChatPanel.current = undefined;
     });
   }
@@ -112,10 +119,18 @@ export class ChatPanel {
         return;
       }
       case 'note':
+        // Notes go into a file that is meant to be committed, so a key must not end up there either.
+        if (m.text && detectApiKey(m.text)) {
+          this.post({ type: 'notice', text: 'That note looks like an API key, so it was not saved. Notes are shared with your team.' });
+          return;
+        }
         if (m.text?.trim()) {
           await this.hooks.saveNote(m.text, m.table || undefined);
           this.post({ type: 'notice', text: 'Saved to the team notes. The next answer will use it.' });
         }
+        return;
+      case 'manageAi':
+        this.hooks.manageAi();
         return;
       case 'link':
         if (m.href && /^https:\/\//i.test(m.href)) await vscode.env.openExternal(vscode.Uri.parse(m.href));
@@ -124,6 +139,14 @@ export class ChatPanel {
   }
 
   private async ask_(text: string): Promise<void> {
+    // First of all, before the busy check, the history or the AI service: a pasted key goes nowhere.
+    const found = detectApiKey(text);
+    if (found) {
+      this.post({ type: 'redactLast', text: '[API key removed. It was not sent.]' });
+      this.post({ type: 'notice', text: 'That looked like an API key, so it was not sent to the AI or kept in the conversation.' });
+      this.hooks.keyPasted(found);
+      return;
+    }
     const source = this.sources.active();
     if (!text.trim() || this.busy) return;
     if (!source) {

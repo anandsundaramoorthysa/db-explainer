@@ -43,7 +43,20 @@ Details: [SECURITY.md](SECURITY.md) and [PRIVACY.md](PRIVACY.md).
 
 ## Bring your own AI
 
-DB Explainer has no AI of its own. It works with any service that speaks the OpenAI chat format, including local models.
+DB Explainer has no AI of its own. It works with Gemini, Groq, OpenRouter, OpenAI, Claude or a local Ollama.
+
+Open **DB Explainer: Manage AI Keys** and add a profile for **Gemini, Groq, OpenRouter, OpenAI, Claude or Ollama**. Each profile has its own address, model, key and optional expiry date. The status bar shows the one in use; click it to switch in one step.
+
+- **Keys stay in VS Code secret storage**, never in settings, and the page only shows the last four characters.
+- **Warned 3 days before a key expires.** An expired key is never used.
+- **Fallback (optional).** Turn on **Manage AI Keys > Fall back to the next valid profile on 401, 429 or 503** and a 401, 429 or 503 answer moves on to the next valid profile. Your table and column names then go to that service, and you are asked to allow it the first time.
+- **A key pasted into the chat is never sent.** You are offered to save it as a profile instead.
+
+### Change a key in one step
+
+Click **Change key** on a profile, or the status bar then **Change key for ...**, or **DB Explainer: Change API Key**. Type the new key (and a new expiry date if the profile has one). It is saved and checked straight away. When a key is rejected, the error message has a **Change key** button too.
+
+Existing `dbExplainer.ai.*` settings keep working until you save your first profile. After that, the profile replaces them.
 
 | Setting | Meaning |
 |---|---|
@@ -51,7 +64,7 @@ DB Explainer has no AI of its own. It works with any service that speaks the Ope
 | `dbExplainer.ai.model` | For example `qwen2.5-coder:7b` or `gpt-4o-mini` |
 | `dbExplainer.ai.maxTokensParam` | Switch to `max_completion_tokens` for models that require it |
 
-Run **DB Explainer: AI: Set API Key** if your service needs a key, and **DB Explainer: AI: Test Connection** to check. The first time you use a host that is not on your computer, you are asked to allow it.
+**DB Explainer: Test AI Connection** checks the profile in use. The first time you use a host that is not on your computer, you are asked to allow it.
 
 ## Team notes
 
@@ -66,7 +79,8 @@ Run **DB Explainer: Add a Team Note**, or use the note box under an answer. Note
 | DB Explainer: Share SQL With the Chat | Shares the open file, the selection, or clipboard SQL |
 | DB Explainer: Refresh Schema | Reads the structure again |
 | DB Explainer: Add a Team Note / Open Team Notes | Works with the notes file |
-| DB Explainer: AI: Set API Key / Clear API Key / Test Connection | Manage your AI service |
+| DB Explainer: Manage AI Keys / Switch AI Profile / Change API Key | Profiles for Gemini, Groq, OpenRouter, OpenAI, Claude and Ollama |
+| DB Explainer: Change API Key / Remove API Key / Test AI Connection | Act on the profile in use |
 
 ## Settings
 
@@ -74,6 +88,7 @@ Run **DB Explainer: Add a Team Note**, or use the note box under an answer. Note
 |---|---|---|
 | `dbExplainer.query.maxRows` | 100 | Most rows a query returns |
 | `dbExplainer.query.timeoutSeconds` | 15 | Queries running longer are cancelled |
+| `dbExplainer.ai.fallback` | off | Try the next valid profile on 401, 429 or 503 |
 | `dbExplainer.ai.sampleRows` | 5 | Rows sent when you let the AI see a result |
 | `dbExplainer.context.maxTables` | 12 | Tables described in full for each question |
 | `dbExplainer.notes.path` | `.dbexplainer/notes.md` | Notes file in the workspace |

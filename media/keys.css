@@ -1,0 +1,36 @@
+body.keys header { flex-wrap: wrap; }
+body.keys h1 { font-size: 1.2em; margin: 0; font-weight: 600; }
+body.keys header .check { flex: 1; margin-left: 12px; opacity: .85; display: flex; gap: 6px; align-items: center; min-width: 220px; }
+body.keys main { max-width: 860px; width: 100%; margin: 0 auto; }
+input { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 3px; font: inherit; padding: 4px 6px; min-width: 0; }
+input[type=checkbox] { padding: 0; }
+.card { border: 1px solid var(--vscode-panel-border); border-radius: 3px; padding: 10px 12px; margin: 0 0 12px; }
+.card.in-use { border-color: var(--vscode-focusBorder); }
+.card.status-expiring { border-color: var(--vscode-editorWarning-foreground); }
+.card.status-expired { border-color: var(--vscode-errorForeground); }
+.card.status-expired .grid, .card.status-expired .top .label { opacity: .65; }
+.card .top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.chip, .pill, .badge { font-size: .8em; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--vscode-panel-border); }
+.pill.active { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); border-color: currentColor; }
+.pill.expiring { color: var(--vscode-editorWarning-foreground); border-color: currentColor; }
+.pill.expired { color: var(--vscode-errorForeground); border-color: currentColor; }
+.badge { background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); border-color: transparent; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px 16px; }
+.field { display: flex; flex-direction: column; gap: 3px; min-width: 0; margin-bottom: 8px; }
+.grid .field { margin-bottom: 0; }
+.field .name { font-size: .85em; opacity: .75; }
+.field .hint { font-size: .8em; opacity: .65; }
+.field .url, .field .mask, .field .expiry { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 0; }
+.mask { font-family: var(--vscode-editor-font-family); }
+.card .bar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.card .bar .danger { margin-left: auto; }
+@media (max-width: 480px) { .card .bar button { flex: 1 1 45%; } }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+button.link { background: none; border: 0; padding: 0; color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; font: inherit; }
+button.danger:hover { color: var(--vscode-errorForeground); }
+.test { margin-top: 8px; min-height: 1.2em; font-size: .9em; }
+.test.ok { color: var(--vscode-testing-iconPassed, var(--vscode-foreground)); }
+.test.bad { color: var(--vscode-errorForeground); }
+.formcard h2 { margin: 0 0 10px; font-size: 1.05em; }
+.formerror { color: var(--vscode-errorForeground); min-height: 1.2em; margin-bottom: 4px; }
+.empty { opacity: .75; }

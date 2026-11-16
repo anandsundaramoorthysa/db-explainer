@@ -2,7 +2,7 @@
   "name": "db-explainer",
   "displayName": "DB Explainer",
   "description": "Understand any database by chatting with it, or with @dex in Copilot Chat. Connect read-only or paste SQL, ask in plain English, get SQL written, explained, checked and run safely, see a table diagram, and export a data dictionary. Use GitHub Copilot or your own AI key.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "AnandSundaramoorthySa",
   "author": {
     "name": "Anand Sundaramoorthy SA"

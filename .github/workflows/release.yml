@@ -10,6 +10,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Set here because a step's "if" cannot see that same step's env.
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,3 +29,7 @@ jobs:
         with:
           files: "*.vsix"
           generate_release_notes: true
+      # Skipped until a Marketplace token is saved in the repository secrets as VSCE_PAT.
+      - name: Publish to the VS Code Marketplace
+        if: ${{ env.VSCE_PAT != '' }}
+        run: npx --yes @vscode/vsce publish --no-dependencies --packagePath *.vsix

@@ -69,12 +69,13 @@ async function launch() {
   assert.strictEqual(await page.locator('.badge').count(), 1);
 
   // The page only ever shows the masked key.
-  const body = await page.textContent('body');
+  // Only what is displayed: this test page also holds the script, which has the key shapes the provider is picked from.
+  const body = (await page.textContent('#list')) + (await page.textContent('#banner'));
   assert.ok(body.includes('••••••••WXYZ'));
   assert.ok(!/gsk_|sk-/.test(body), 'no key text anywhere on the page');
 
   // The model field is editable and also offers a list; changing it is sent.
-  const model = page.locator('section.card').first().locator('input[list]');
+  const model = page.locator('section.card').first().locator('input[data-action=model]');
   assert.strictEqual(await page.locator('datalist#models-Work option').count(), 2);
   await model.fill('my-custom-model');
   await model.dispatchEvent('change');
@@ -110,7 +111,7 @@ async function launch() {
 
   // Add: the provider fills the address and model, the key field is a password box, and the typed key is cleared after Save.
   await page.click('#add');
-  assert.strictEqual(await page.getAttribute('input[type=password]', 'type'), 'password');
+  assert.strictEqual(await page.getAttribute('form input[type=password]', 'type'), 'password');
   assert.strictEqual(await page.locator('form select').inputValue(), 'groq');
   await page.selectOption('form select', 'openai');
   const fields = page.locator('form input'); // key, model, then label, address, date inside Advanced
@@ -119,29 +120,54 @@ async function launch() {
   assert.strictEqual(await fields.nth(3).inputValue(), 'https://api.openai.com/v1', 'address follows the provider');
   assert.strictEqual(await fields.nth(1).inputValue(), 'gpt-4o-mini', 'model follows the provider');
   await fields.nth(2).fill('Home');
-  await page.fill('input[type=password]', 'sk-live-SECRET-1234567890');
-  await page.fill('input[type=date]', '2027-02-03');
+  await page.fill('form input[type=password]', 'sk-live-SECRET-1234567890');
+  await page.fill('form input[type=date]', '2027-02-03');
   await page.click('form button[type=submit]');
   const saved = (await sent()).at(-1);
   assert.deepStrictEqual({ ...saved, key: undefined }, { type: 'save', id: undefined, provider: 'openai', label: 'Home', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', expiresAt: '2027-02-03', key: undefined });
   assert.strictEqual(saved.key, 'sk-live-SECRET-1234567890');
-  assert.strictEqual(await page.inputValue('input[type=password]'), 'sk-live-SECRET-1234567890', 'the key stays until the host accepts it');
+  assert.strictEqual(await page.inputValue('form input[type=password]'), 'sk-live-SECRET-1234567890', 'the key stays until the host accepts it');
   await send({ type: 'formError', text: 'The expiry date must be a real date.' });
   await settle();
   assert.ok(/real date/.test(await page.textContent('.formerror')));
-  assert.strictEqual(await page.inputValue('input[type=password]'), 'sk-live-SECRET-1234567890', 'a form error does not wipe the key');
+  assert.strictEqual(await page.inputValue('form input[type=password]'), 'sk-live-SECRET-1234567890', 'a form error does not wipe the key');
   await send({ type: 'saved' });
   await settle();
   assert.strictEqual(await page.locator('form').count(), 0);
   assert.ok(/Saved/.test(await page.textContent('[role=status].sr-only')));
+
+  // The provider follows a pasted key when nobody chose one, and the address and model follow the provider.
+  await send({ type: 'state', presets, fallback: false, profiles: [] });
+  await page.click('#add');
+  await page.fill('form input[type=password]', 'sk-abcdefghijklmnopqrstuvwxyz');
+  assert.strictEqual(await page.locator('form select').inputValue(), 'openai', 'an sk- key means OpenAI');
+  assert.strictEqual(await page.locator('form input').nth(1).inputValue(), 'gpt-4o-mini');
+  await page.selectOption('form select', 'groq');
+  await page.fill('form input[type=password]', 'sk-abcdefghijklmnopqrstuvwxyzz');
+  assert.strictEqual(await page.locator('form select').inputValue(), 'groq', 'a provider chosen by hand stays');
+  await page.click('form button:has-text("Cancel")');
+
+  // Copilot: offered as a provider with no key and no address, and its card has no key controls.
+  const copilotPresets = [...presets, { provider: 'vscode', name: 'GitHub Copilot (no key)', baseUrl: 'vscode-lm:copilot', models: ['gpt-x', 'gpt-y'] }];
+  await send({ type: 'state', presets: copilotPresets, fallback: false, copilot: true, profiles: [prof('Cop', { provider: 'vscode', providerName: 'GitHub Copilot (no key)', baseUrl: 'vscode-lm:copilot', hasKey: false, keyMask: '', model: 'gpt-x', savedModels: ['gpt-x'] })] });
+  await settle();
+  const cop = page.locator('section.card').first();
+  assert.strictEqual(await cop.locator('.addkey').count(), 0, 'no place to add keys');
+  assert.ok(await cop.locator('button:has-text("Change key")').isHidden());
+  assert.ok(/Not needed/.test(await cop.textContent()));
+  await page.click('#add');
+  await page.selectOption('form select', 'vscode');
+  assert.ok(await page.locator('form input[type=password]').isHidden(), 'no key box for Copilot');
+  assert.strictEqual(await page.locator('form input').nth(1).inputValue(), 'gpt-x', 'a Copilot model is filled in');
+  await page.click('form button:has-text("Cancel")');
 
   // A key pasted in the chat is waiting on the host: the page knows it exists but never has it.
   await send({ type: 'state', presets, fallback: false, profiles: [], pendingKey: { provider: 'groq' } });
   await send({ type: 'startAdd', provider: 'groq' });
   await settle();
   assert.ok(/pasted in the chat/.test(await page.textContent('#banner')));
-  assert.ok(/Using the key you pasted/.test(await page.getAttribute('input[type=password]', 'placeholder')));
-  assert.strictEqual(await page.inputValue('input[type=password]'), '');
+  assert.ok(/Using the key you pasted/.test(await page.getAttribute('form input[type=password]', 'placeholder')));
+  assert.strictEqual(await page.inputValue('form input[type=password]'), '');
   await page.click('#banner button:has-text("Discard")');
   assert.deepStrictEqual((await sent()).at(-1), { type: 'discardPending' });
 
@@ -149,7 +175,71 @@ async function launch() {
   await send({ type: 'state', presets, fallback: false, profiles: [prof('Work', { inUse: true })] });
   await settle();
   await page.click('button:has-text("Edit")');
-  assert.ok(/Leave empty to keep/.test(await page.getAttribute('input[type=password]', 'placeholder')));
+  assert.ok(/Leave empty to keep/.test(await page.getAttribute('form input[type=password]', 'placeholder')));
+
+  // Several keys: one row each, with the same controls, still only masked, and the expired one cannot be picked.
+  await send({
+    type: 'state', presets, fallback: false,
+    profiles: [prof('Multi', {
+      inUse: true,
+      savedModels: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
+      keys: [
+        { id: 'primary', mask: '••••••••AAAA', hasKey: true, expiryText: 'Expired on 2026-10-01', status: 'expired', inUse: false },
+        { id: 'k2', mask: '••••••••BBBB', hasKey: true, expiryText: 'No expiry date', status: 'active', inUse: true },
+        { id: 'k3', mask: '••••••••CCCC', hasKey: true, expiryText: 'No expiry date', status: 'active', inUse: false },
+      ],
+    })],
+  });
+  await settle();
+  const rows = page.locator('.keyrow');
+  assert.strictEqual(await rows.count(), 3);
+  assert.ok((await page.textContent('.keyrows')).includes('••••••••CCCC'));
+  assert.ok(await rows.nth(0).locator('button:has-text("Use")').isDisabled(), 'an expired key cannot be picked');
+  assert.ok(await rows.nth(1).locator('button:has-text("Use")').isDisabled(), 'the key in use is already picked');
+  await rows.nth(2).locator('button:has-text("Use")').click();
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'useKey', id: 'Multi', keyId: 'k3' });
+  await rows.nth(0).locator('button:has-text("Change")').click();
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'changeKey', id: 'Multi', keyId: 'primary' });
+  await rows.nth(2).locator('button:has-text("Remove")').click();
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'removeKey', id: 'Multi', keyId: 'k3' });
+
+  // Each key can be tested and given a date on its own row, except that an expired key is never sent.
+  assert.ok(await rows.nth(0).locator('button:has-text("Test")').isDisabled());
+  await rows.nth(2).locator('button:has-text("Test")').click();
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'testKey', id: 'Multi', keyId: 'k3' });
+  await rows.nth(2).locator('input[type=date]').fill('2027-03-04');
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'setKeyDate', id: 'Multi', keyId: 'k3', expiresAt: '2027-03-04' });
+
+  // Adding keys happens right on the card, and two pasted keys on separate lines stay two keys.
+  const addRow = page.locator('.addkey');
+  assert.ok(await addRow.locator('input[type=password]').count());
+  await addRow.locator('input[type=password]').focus();
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData('text', 'gsk_ONE\ngsk_TWO');
+    document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  assert.strictEqual(await addRow.locator('input[type=password]').inputValue(), 'gsk_ONE gsk_TWO');
+  await addRow.locator('input[type=date]').fill('2027-01-02');
+  await addRow.locator('button:has-text("Add key")').click();
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'addKeys', id: 'Multi', key: 'gsk_ONE gsk_TWO', expiresAt: '2027-01-02' });
+  assert.strictEqual(await addRow.locator('input[type=password]').inputValue(), '', 'the key leaves the page once sent');
+
+  // Saved models: press one to use it, the one in use cannot be removed, and a new one can be added.
+  const versions = page.locator('.version');
+  assert.strictEqual(await versions.count(), 2);
+  assert.strictEqual(await versions.nth(0).locator('button').count(), 1, 'no remove button on the model in use');
+  await versions.nth(1).locator('button').first().click();
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'setModel', id: 'Multi', model: 'llama-3.1-8b-instant' });
+  await versions.nth(1).locator('button').nth(1).click();
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'removeModel', id: 'Multi', model: 'llama-3.1-8b-instant' });
+  await page.fill('.versionrow input', 'llama-new');
+  await page.click('button:has-text("Add model")');
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'addModel', id: 'Multi', model: 'llama-new' });
+
+  await page.setViewportSize({ width: 320, height: 700 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 320), 'key rows do not scroll sideways at 320px');
+  await page.setViewportSize({ width: 760, height: 800 });
 
   // A label with markup in it is shown as text, not run.
   await send({ type: 'state', presets, fallback: false, profiles: [prof('x', { label: '<img src=x onerror="window.__pwned=1">' })] });

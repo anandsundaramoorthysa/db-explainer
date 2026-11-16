@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
 import { AiConfig } from './ai/client';
-import { describeExpiry, preset, ProfileStore, providerFromUrl, statusOf } from './ai/profiles';
+import { describeExpiry, keysOf, modelsOf, preset, ProfileStore, providerFromUrl, statusOf, withModel } from './ai/profiles';
 
 const MANAGE = 'dbExplainer.ai.manage';
 export const SWITCH = 'dbExplainer.ai.switch';
 const CHANGE = '\u0000change-key';
 const ADD = '\u0000add';
+const ADD_KEY = '\u0000add-key';
+const MODEL = '\u0000model:';
 
 function short(text: string, max = 32): string {
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
@@ -44,7 +46,9 @@ export class AiStatusBar implements vscode.Disposable {
     if (status === 'expired') this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
     else if (status === 'expiring') this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
     const tip = new vscode.MarkdownString(undefined, true);
-    tip.appendText(`${p.label} (${preset(p.provider).name}, ${p.model})\n${describeExpiry(p, now)}${status === 'expired' ? '. This key is skipped.' : ''}\nClick to switch profile.`);
+    const keys = keysOf(p);
+    const position = keys.length > 1 ? `\nUsing key ${keys.findIndex((k) => k.id === this.store.currentKeyId(p)) + 1} of ${keys.length}.` : '';
+    tip.appendText(`${p.label} (${preset(p.provider).name}, ${p.model})\n${describeExpiry(p, now)}${status === 'expired' ? '. This key is skipped.' : ''}${position}\nClick to switch profile.`);
     this.item.tooltip = tip;
   }
 
@@ -64,18 +68,27 @@ export async function switchProfile(store: ProfileStore): Promise<void> {
   const inUse = store.active()?.id;
   const valid = all.filter((p) => statusOf(p, now) !== 'expired');
   const hidden = all.length - valid.length;
+  const active = store.active();
   type Item = vscode.QuickPickItem & { id?: string };
+  const otherModels = active ? modelsOf(active).filter((m) => m !== active.model) : [];
   const items: Item[] = [
     ...valid.map((p): Item => ({ id: p.id, label: `${p.id === inUse ? '$(check) ' : ''}${p.label}`, description: `${preset(p.provider).name} · ${p.model}`, detail: describeExpiry(p, now) })),
+    ...(otherModels.length ? [{ label: `Models for ${active?.label}`, kind: vscode.QuickPickItemKind.Separator } as Item] : []),
+    ...otherModels.map((m): Item => ({ id: MODEL + m, label: `$(versions) Use ${m}` })),
     { label: '', kind: vscode.QuickPickItemKind.Separator },
     { label: `$(key) Change key for ${store.active()?.label ?? 'the active profile'}...`, id: CHANGE },
+    { label: `$(add) Add another key to ${store.active()?.label ?? 'the active profile'}...`, id: ADD_KEY },
     { label: '$(add) Add profile...', id: ADD },
     { label: '$(gear) Manage AI Keys...' },
   ];
   const pick = await vscode.window.showQuickPick(items, { title: 'Switch AI profile', placeHolder: hidden ? `${hidden} expired profile${hidden === 1 ? ' is' : 's are'} hidden and never used` : 'Which profile should the chat use?' });
   if (!pick) return;
   if (pick.id === CHANGE) await vscode.commands.executeCommand('dbExplainer.ai.changeKey');
-  else if (pick.id === ADD) await vscode.commands.executeCommand(MANAGE, true);
+  else if (pick.id === ADD_KEY) await vscode.commands.executeCommand('dbExplainer.ai.addKey');
+  else if (pick.id?.startsWith(MODEL)) {
+    const latest = store.active();
+    if (latest) await store.save(withModel(latest, pick.id.slice(MODEL.length)));
+  } else if (pick.id === ADD) await vscode.commands.executeCommand(MANAGE, true);
   else if (pick.id) await store.setActive(pick.id);
   else await vscode.commands.executeCommand(MANAGE);
 }

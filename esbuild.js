@@ -24,6 +24,8 @@ async function main() {
   });
   // sql.js loads its WebAssembly file at run time, so ship it next to the bundles.
   fs.copyFileSync(path.join('node_modules', 'sql.js', 'dist', 'sql-wasm.wasm'), path.join('out', 'sql-wasm.wasm'));
+  // The small store database behind "Try the sample database". It is opened read-only, as an in-memory copy.
+  fs.copyFileSync(path.join('test', 'fixtures', 'sql_explainer_test.db'), path.join('out', 'sample.db'));
   if (watch) {
     await ctx.watch();
   } else {

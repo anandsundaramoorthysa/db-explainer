@@ -1,6 +1,7 @@
 import * as sql from 'mssql';
 import { Column, ConnectionProfile, ForeignKey, QueryLimits, QueryResult, Routine, SchemaModel, Table, emptyColumn, emptyTable } from '../types';
 import { Connector, QueryTimeoutError, schemaFor, toResult } from './connector';
+import { tlsFor } from './tls';
 
 type Row = Record<string, any>;
 
@@ -25,6 +26,7 @@ export class MssqlConnector implements Connector {
     if (this.pool?.connected) return this.pool;
     const host = this.profile.host ?? 'localhost';
     const local = LOCAL_HOSTS.has(host.toLowerCase());
+    const ca = tlsFor({ ...this.profile, ssl: this.profile.ssl !== false })?.ca;
     const pool = new sql.ConnectionPool({
       server: host,
       port: this.profile.port ?? 1433,
@@ -35,8 +37,10 @@ export class MssqlConnector implements Connector {
       requestTimeout: 60000,
       options: {
         encrypt: this.profile.ssl !== false,
-        // A local server usually has a self-signed certificate. Remote servers must present a valid one.
-        trustServerCertificate: this.profile.trustServerCertificate ?? local,
+        // A local server usually has a self-signed certificate. Remote servers must present a valid one, unless the developer chose
+        // "Connect anyway" for this connection.
+        trustServerCertificate: this.profile.trustServerCertificate ?? (local || this.profile.tlsVerify === false),
+        ...(ca ? { cryptoCredentialsDetails: { ca } } : {}),
         enableArithAbort: true,
       },
       pool: { max: 1, min: 0 },

@@ -175,6 +175,55 @@ exports.run = async function run() {
 
   await vscode.commands.executeCommand('dbExplainer.disconnect', { kind: 'connection', profile });
   assert.ok(!api.sources.isConnected('e2e'));
+
+  // The newer commands are all there.
+  const now = await vscode.commands.getCommands(true);
+  for (const id of ['trySample', 'explainSql', 'checkSpeed', 'showDiagram', 'exportDictionary', 'ai.useCopilot', 'ai.addKey']) {
+    assert.ok(now.includes('dbExplainer.' + id), 'command registered: ' + id);
+  }
+
+  // The sample database opens in one step, read-only, from the copy shipped with the extension.
+  await vscode.commands.executeCommand('dbExplainer.trySample');
+  await until(() => api.sources.isConnected('sample'), 'sample database');
+  assert.ok(api.sources.active().model.tables.some((t) => t.name === 'order_items'), 'the sample has the store tables');
+
+  // Speed: the database plans the query without running it, and the plan reaches the AI.
+  ai.setReply('Add an index.\n```sql\nCREATE INDEX idx_orders_status ON orders (status);\n```');
+  at = seen.length;
+  const before5 = ai.requests.length;
+  await vscode.commands.executeCommand('dbExplainer.checkSpeed', "SELECT * FROM orders WHERE status = 'completed'");
+  await waitFor('answer', at);
+  const speedPrompt = ai.requests[before5].body.messages.at(-1).content;
+  assert.ok(/SCAN orders/.test(speedPrompt), 'the plan from the database is in the question');
+  assert.ok(seen.slice(at).some((m) => m.type === 'echo'), 'the question is shown in the chat');
+
+  // The diagram and the data dictionary.
+  await vscode.commands.executeCommand('dbExplainer.showDiagram');
+  await until(() => vscode.window.tabGroups.all.flatMap((g) => g.tabs).some((t) => /^Diagram: /.test(t.label)), 'the diagram tab');
+  await vscode.commands.executeCommand('dbExplainer.exportDictionary');
+  const dictionary = await until(() => vscode.workspace.textDocuments.find((d) => d.languageId === 'markdown' && d.getText().includes('data dictionary')), 'the data dictionary');
+  assert.ok(dictionary.getText().includes('```mermaid\nerDiagram'), 'the dictionary has the diagram');
+  assert.ok(dictionary.isUntitled, 'nothing was written to disk');
+
+  // A SQL file: problems are underlined with no AI involved, and every statement gets Explain above it.
+  const levels = vscode.Uri.file(path.join(repo, 'test', 'fixtures', 'sql', 'explainer_levels.sql'));
+  const sqlDoc = await vscode.workspace.openTextDocument(levels);
+  await vscode.window.showTextDocument(sqlDoc);
+  const problems = await until(() => {
+    const d = vscode.languages.getDiagnostics(levels).filter((x) => x.source === 'DB Explainer');
+    return d.length ? d : undefined;
+  }, 'underlines in the SQL file');
+  assert.ok(problems.some((d) => /never true/.test(d.message)), '= NULL is underlined');
+  assert.ok(problems.some((d) => /SELEC/.test(d.message) && d.severity === vscode.DiagnosticSeverity.Error), 'the misspelled command is an error');
+  const lenses = await vscode.commands.executeCommand('vscode.executeCodeLensProvider', levels);
+  assert.ok(lenses.some((l) => l.command && /Explain/.test(l.command.title)), 'Explain is offered above statements');
+  assert.ok(lenses.some((l) => l.command && /Check speed/.test(l.command.title)), 'Check speed is offered while a live database is in use');
+  const requestsBefore = ai.requests.length;
+  at = seen.length;
+  await vscode.commands.executeCommand('dbExplainer.explainSql', "SELECT name, email\nFROM customers\nWHERE country = 'India'", levels);
+  await waitFor('answer', at);
+  assert.ok(ai.requests[requestsBefore].body.messages.at(-1).content.includes('Explain this query step by step'), 'the statement was sent to be explained');
+  await vscode.commands.executeCommand('dbExplainer.disconnect', { kind: 'shared', id: 'sample' });
   ai.server.close();
   console.log('end-to-end checks passed');
 };

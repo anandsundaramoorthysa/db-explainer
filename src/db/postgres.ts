@@ -1,6 +1,7 @@
 import { Client } from 'pg';
 import { Column, ConnectionProfile, ForeignKey, QueryLimits, QueryResult, SchemaModel, Table, emptyColumn, emptyTable } from '../types';
 import { Connector, QueryTimeoutError, schemaFor, toResult } from './connector';
+import { tlsFor } from './tls';
 
 type Row = Record<string, any>;
 
@@ -22,7 +23,7 @@ export class PostgresConnector implements Connector {
       user: this.profile.user,
       password: this.password,
       database: this.profile.database || undefined,
-      ssl: this.profile.ssl ? { rejectUnauthorized: false } : undefined,
+      ssl: tlsFor(this.profile),
       connectionTimeoutMillis: 10000,
       // Every transaction in this session is read-only, whatever the query says.
       options: '-c default_transaction_read_only=on',

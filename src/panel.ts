@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Conversation } from './chat/conversation';
+import { Conversation, Progress } from './chat/conversation';
 import { stripSqlBlocks } from './ai/prompt';
 import { detectApiKey } from './ai/keyScan';
 import { Provider } from './ai/profiles';
@@ -14,6 +14,10 @@ export interface PanelHooks {
   keyPasted: (found: { key: string; provider?: Provider }) => void;
   /** Opens Manage AI Keys with the Add form already open. */
   manageAi: () => void;
+  /** True when GitHub Copilot can answer, so no key is needed. */
+  copilotAvailable?: () => boolean;
+  useCopilot?: () => void;
+  trySample?: () => void;
 }
 
 interface Inbound {
@@ -41,6 +45,9 @@ export class ChatPanel {
   private readonly runs = new Map<string, { sourceId: string; sql: string; result: QueryResult }>();
   private counter = 0;
   private busy = false;
+  /** A page that has just been created drops messages until its script runs, so the first question waits for it. */
+  private ready = false;
+  private waiting: string | undefined;
 
   static open(context: vscode.ExtensionContext, sources: SourceManager, conversation: Conversation, hooks: PanelHooks): ChatPanel {
     if (ChatPanel.current) {
@@ -75,12 +82,16 @@ export class ChatPanel {
 
   /** Puts a question in the box and sends it, used by "Ask about this table". */
   ask(text: string): void {
+    if (!this.ready) {
+      this.waiting = text;
+      return;
+    }
     void this.panel.webview.postMessage({ type: 'prefill', text, send: true });
   }
 
   pushState(): void {
     ChatPanel.tap?.({ type: 'state' });
-    void this.panel.webview.postMessage({ type: 'state', sources: this.sources.info(), activeId: this.sources.active()?.id, aiReady: this.hooks.aiReady() });
+    void this.panel.webview.postMessage({ type: 'state', sources: this.sources.info(), activeId: this.sources.active()?.id, aiReady: this.hooks.aiReady(), copilot: this.hooks.copilotAvailable?.() ?? false });
   }
 
   notice(text: string): void {
@@ -95,7 +106,21 @@ export class ChatPanel {
   async handle(m: Inbound): Promise<void> {
     switch (m.type) {
       case 'ready':
+        this.ready = true;
         this.pushState();
+        if (this.waiting) {
+          const text = this.waiting;
+          this.waiting = undefined;
+          this.ask(text);
+        }
+        return;
+      case 'speed':
+        return this.checkSpeed(m.sql ?? '');
+      case 'useCopilot':
+        this.hooks.useCopilot?.();
+        return;
+      case 'trySample':
+        this.hooks.trySample?.();
         return;
       case 'select':
         if (m.id) this.sources.setActive(m.id);
@@ -138,6 +163,20 @@ export class ChatPanel {
     }
   }
 
+  /** Sends the reply to the page as it is written, a few times a second rather than for every word. */
+  private progress(): Progress {
+    let last = 0;
+    return {
+      draft: (soFar) => {
+        const now = Date.now();
+        if (now - last < 60) return;
+        last = now;
+        this.post({ type: 'draft', text: soFar });
+      },
+      checking: () => this.post({ type: 'checking' }),
+    };
+  }
+
   private async ask_(text: string): Promise<void> {
     // First of all, before the busy check, the history or the AI service: a pasted key goes nowhere.
     const found = detectApiKey(text);
@@ -156,7 +195,26 @@ export class ChatPanel {
     this.busy = true;
     this.post({ type: 'thinking', on: true });
     try {
-      const a = await this.conversation.ask(source, text);
+      const a = await this.conversation.ask(source, text, undefined, this.progress());
+      this.post({ type: 'answer', html: renderMarkdown(stripSqlBlocks(a.text)), sql: a.sql, tables: a.tables, statsUsed: a.statsUsed, canRun: !!source.connector });
+    } catch (e) {
+      this.post({ type: 'error', text: (e as Error).message });
+    } finally {
+      this.busy = false;
+      this.post({ type: 'thinking', on: false });
+    }
+  }
+
+  /** "Why is this slow?": from the button under a query, or from the editor. */
+  async checkSpeed(sql: string): Promise<void> {
+    const source = this.sources.active();
+    if (!sql.trim() || this.busy || !source) return;
+    if (!this.ready) await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    this.busy = true;
+    this.post({ type: 'echo', text: `Why is this query slow?\n${sql.trim()}` });
+    this.post({ type: 'thinking', on: true });
+    try {
+      const a = await this.conversation.explainSpeed(source, sql, this.progress());
       this.post({ type: 'answer', html: renderMarkdown(stripSqlBlocks(a.text)), sql: a.sql, tables: a.tables, statsUsed: a.statsUsed, canRun: !!source.connector });
     } catch (e) {
       this.post({ type: 'error', text: (e as Error).message });
@@ -187,7 +245,7 @@ export class ChatPanel {
     this.busy = true;
     this.post({ type: 'thinking', on: true });
     try {
-      const a = await this.conversation.explainRows(source, run.sql, run.result);
+      const a = await this.conversation.explainRows(source, run.sql, run.result, this.progress());
       this.post({ type: 'answer', html: renderMarkdown(stripSqlBlocks(a.text)), sql: a.sql, tables: a.tables, statsUsed: a.statsUsed, canRun: !!source.connector });
     } catch (e) {
       this.post({ type: 'error', text: (e as Error).message });

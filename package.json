@@ -1,7 +1,7 @@
 {
   "name": "db-explainer",
   "displayName": "DB Explainer",
-  "description": "Understand any database by chatting with it. Connect read-only or paste SQL, then ask in plain English, get SQL written, explained and run safely. You bring your own AI key.",
+  "description": "Understand any database by chatting with it, or with @dex in Copilot Chat. Connect read-only or paste SQL, ask in plain English, get SQL written, explained, checked and run safely, see a table diagram, and export a data dictionary. Use GitHub Copilot or your own AI key.",
   "version": "1.1.0",
   "publisher": "AnandSundaramoorthySa",
   "author": {
@@ -28,7 +28,7 @@
   },
   "homepage": "https://github.com/anandsundaramoorthysa/db-explainer#readme",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Data Science",
@@ -47,7 +47,10 @@
     "chat",
     "explain",
     "ai",
-    "text to sql"
+    "text to sql",
+    "copilot",
+    "er diagram",
+    "data dictionary"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -141,6 +144,11 @@
         "category": "DB Explainer"
       },
       {
+        "command": "dbExplainer.ai.addKey",
+        "title": "Add More API Keys",
+        "category": "DB Explainer"
+      },
+      {
         "command": "dbExplainer.ai.clearKey",
         "title": "Remove API Key",
         "category": "DB Explainer"
@@ -149,6 +157,42 @@
         "command": "dbExplainer.ai.test",
         "title": "Test AI Connection",
         "category": "DB Explainer"
+      },
+      {
+        "command": "dbExplainer.trySample",
+        "title": "Try the Sample Database",
+        "category": "DB Explainer",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "dbExplainer.explainSql",
+        "title": "Explain This SQL",
+        "category": "DB Explainer",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "dbExplainer.checkSpeed",
+        "title": "Why Is This Query Slow?",
+        "category": "DB Explainer",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "dbExplainer.showDiagram",
+        "title": "Show Table Diagram",
+        "category": "DB Explainer",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "dbExplainer.exportDictionary",
+        "title": "Export Data Dictionary",
+        "category": "DB Explainer",
+        "icon": "$(book)"
+      },
+      {
+        "command": "dbExplainer.ai.useCopilot",
+        "title": "Use GitHub Copilot (No Key)",
+        "category": "DB Explainer",
+        "icon": "$(copilot)"
       }
     ],
     "viewsContainers": {
@@ -172,7 +216,7 @@
     "viewsWelcome": [
       {
         "view": "dbExplainer.connections",
-        "contents": "Connect to a database, or share some SQL, then ask questions about it in plain English.\n[Set up AI](command:dbExplainer.ai.manage)\n[Add a database connection](command:dbExplainer.addConnection)\n[Open the chat](command:dbExplainer.openChat)\n[Share the open SQL file](command:dbExplainer.shareSql)"
+        "contents": "Connect to a database, or share some SQL, then ask questions about it in plain English.\n[Try the sample database](command:dbExplainer.trySample)\n[Add a database connection](command:dbExplainer.addConnection)\n[Share the open SQL file](command:dbExplainer.shareSql)\nNo AI key? [Use GitHub Copilot](command:dbExplainer.ai.useCopilot), or [add a free key](command:dbExplainer.ai.manage)."
       }
     ],
     "menus": {
@@ -219,6 +263,21 @@
           "command": "dbExplainer.openNotes",
           "when": "view == dbExplainer.connections",
           "group": "overflow@2"
+        },
+        {
+          "command": "dbExplainer.showDiagram",
+          "when": "view == dbExplainer.connections",
+          "group": "navigation@4"
+        },
+        {
+          "command": "dbExplainer.exportDictionary",
+          "when": "view == dbExplainer.connections",
+          "group": "overflow@3"
+        },
+        {
+          "command": "dbExplainer.trySample",
+          "when": "view == dbExplainer.connections",
+          "group": "overflow@4"
         }
       ],
       "view/item/context": [
@@ -247,6 +306,16 @@
         {
           "command": "dbExplainer.shareSql",
           "when": "resourceExtname == .sql",
+          "group": "navigation"
+        },
+        {
+          "command": "dbExplainer.explainSql",
+          "when": "editorLangId == sql",
+          "group": "navigation"
+        },
+        {
+          "command": "dbExplainer.checkSpeed",
+          "when": "editorLangId == sql",
           "group": "navigation"
         }
       ],
@@ -324,6 +393,16 @@
           "type": "string",
           "default": ".dbexplainer/notes.md",
           "markdownDescription": "Team notes file, relative to the workspace folder. Commit it so everyone's chat uses the same notes."
+        },
+        "dbExplainer.editor.checks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Underline problems in .sql files as you type, such as = NULL, a misspelled command, an unknown column, or a filter that cannot use an index. Works offline with no AI."
+        },
+        "dbExplainer.editor.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Explain and Check speed above each statement in .sql files."
         }
       }
     },
@@ -336,13 +415,14 @@
           {
             "id": "connect",
             "title": "Share a database",
-            "description": "Add a read-only connection, or share a SQL file.\n[Add a database connection](command:dbExplainer.addConnection)",
+            "description": "Try the sample database, add a read-only connection, or share a SQL file.\n[Try the sample database](command:dbExplainer.trySample)\n[Add a database connection](command:dbExplainer.addConnection)",
             "media": {
               "markdown": "media/walkthrough/connect.md"
             },
             "completionEvents": [
               "onCommand:dbExplainer.addConnection",
-              "onCommand:dbExplainer.shareSql"
+              "onCommand:dbExplainer.shareSql",
+              "onCommand:dbExplainer.trySample"
             ]
           },
           {
@@ -359,13 +439,14 @@
           {
             "id": "ai",
             "title": "Bring your own AI",
-            "description": "Add a profile for Gemini, Groq, OpenRouter, OpenAI, Claude or Ollama. Keys stay in VS Code secret storage on your machine.\n[Manage AI keys](command:dbExplainer.ai.manage)",
+            "description": "Use GitHub Copilot with no key, or add a profile for Gemini, Groq, OpenRouter, OpenAI, Claude or Ollama. Keys stay in VS Code secret storage on your machine.\n[Use GitHub Copilot](command:dbExplainer.ai.useCopilot)\n[Manage AI keys](command:dbExplainer.ai.manage)",
             "media": {
               "markdown": "media/walkthrough/ai.md"
             },
             "completionEvents": [
               "onCommand:dbExplainer.ai.manage",
-              "onCommand:dbExplainer.ai.setKey"
+              "onCommand:dbExplainer.ai.setKey",
+              "onCommand:dbExplainer.ai.useCopilot"
             ]
           },
           {
@@ -381,11 +462,21 @@
           }
         ]
       }
+    ],
+    "chatParticipants": [
+      {
+        "id": "dbExplainer.dex",
+        "name": "dex",
+        "fullName": "Dex",
+        "description": "Ask about your database",
+        "isSticky": true
+      }
     ]
   },
   "scripts": {
     "vscode:prepublish": "node esbuild.js --production",
     "build": "node esbuild.js",
+    "try": "node esbuild.js && node test/try.js",
     "watch": "node esbuild.js --watch",
     "typecheck": "tsc --noEmit -p ./",
     "pretest": "node esbuild.js",
@@ -409,7 +500,7 @@
     "@types/node": "^20.14.0",
     "@types/pg": "^8.11.0",
     "@types/sql.js": "^1.4.9",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "1.90.0",
     "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.24.0",

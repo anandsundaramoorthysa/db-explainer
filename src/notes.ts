@@ -33,6 +33,14 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** The full path of the notes file, or undefined if the setting points outside the workspace folder. */
+export function resolveNotesFile(folder: string, relative: string, paths: Pick<typeof path, 'resolve' | 'relative' | 'isAbsolute'> = path): string | undefined {
+  const full = paths.resolve(folder, relative);
+  const inside = paths.relative(folder, full);
+  // A folder with a similar name (C:\proj-other beside C:\proj) comes back as "..\proj-other", and another drive as an absolute path.
+  return inside && inside !== '..' && !inside.startsWith('../') && !inside.startsWith('..\\') && !paths.isAbsolute(inside) ? full : undefined;
+}
+
 export function readNotes(file: string): string {
   try {
     return fs.readFileSync(file, 'utf8');

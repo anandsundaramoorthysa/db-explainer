@@ -1,0 +1,26 @@
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+header { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
+header .hint { flex: 1; opacity: .7; font-size: .9em; min-width: 180px; }
+button { font: inherit; color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; border-radius: 3px; padding: 4px 10px; cursor: pointer; }
+button.ghost { color: var(--vscode-foreground); background: transparent; border: 1px solid var(--vscode-panel-border); }
+button:focus-visible, .node:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+svg { flex: 1; width: 100%; min-height: 0; cursor: grab; touch-action: none; }
+svg.dragging { cursor: grabbing; }
+.empty { padding: 24px; opacity: .75; }
+.node { cursor: pointer; }
+.node rect.box { fill: var(--vscode-editorWidget-background, var(--vscode-editor-background)); stroke: var(--vscode-panel-border); stroke-width: 1; }
+.node rect.head { fill: var(--vscode-badge-background); }
+.node.view rect.head { fill: var(--vscode-editorInfo-foreground, var(--vscode-badge-background)); opacity: .8; }
+.node text { fill: var(--vscode-foreground); font-size: 12px; }
+.node text.name { fill: var(--vscode-badge-foreground); font-weight: 600; font-size: 13px; }
+.node text.rows { fill: var(--vscode-badge-foreground); opacity: .8; font-size: 11px; }
+.node text.type, .node text.more { opacity: .6; }
+.node text.key { font-size: 10px; font-weight: 700; fill: var(--vscode-editorWarning-foreground); }
+.node text.key.fk { fill: var(--vscode-textLink-foreground); }
+.node:hover rect.box, .node.on rect.box { stroke: var(--vscode-focusBorder); stroke-width: 2; }
+.edge { fill: none; stroke: var(--vscode-descriptionForeground, var(--vscode-foreground)); stroke-opacity: .45; stroke-width: 1.4; }
+.edge.on { stroke: var(--vscode-focusBorder); stroke-opacity: 1; stroke-width: 2.2; }
+.edge-label { fill: var(--vscode-descriptionForeground, var(--vscode-foreground)); font-size: 10px; opacity: 0; }
+.edge-label.on { opacity: 1; }
+marker path { fill: var(--vscode-descriptionForeground, var(--vscode-foreground)); }

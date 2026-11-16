@@ -14,12 +14,18 @@ Understand any database by chatting with it. Share a live database (read-only) o
 - **Explains a query you paste.** Step by step, checked against the schema.
 - **Runs queries when you ask.** Press Run under any SQL. See the rows in the chat.
 - **Remembers what your team knows.** Notes such as "status 3 means shipped" live in a file in your repo and improve every answer.
+- **Checks .sql files as you type, with no AI.** `= NULL`, a misspelled command, an unknown column, tables joined by a comma with nothing linking them, and filters that cannot use an index are underlined. Turn it off with `dbExplainer.editor.checks`.
+- **Explain and Check speed above every statement.** One click explains a statement in the chat. Check speed asks the database how it would run the query (`EXPLAIN`, nothing is run) and explains how to make it faster, with the index to add.
+- **A table diagram.** See every table and how they link, click one to ask about it, or copy it as Mermaid for a README.
+- **A data dictionary.** One command writes a Markdown page describing every table, with the diagram and your team notes, ready to commit.
+- **Try it with no setup.** "Try the sample database" opens a small store database that ships with the extension.
+- **No key needed with GitHub Copilot.** Use Copilot's models through VS Code, or ask `@dex` in Copilot Chat.
 
 ## Two ways to share a database
 
 | | Live connection | Shared SQL |
 |---|---|---|
-| How | Add a connection in the sidebar | Right-click a `.sql` file, or select SQL and run **Share SQL With the Chat** |
+| How | Add a connection in the sidebar, or paste a connection string | Right-click a `.sql` file, or select SQL and run **Share SQL With the Chat** |
 | Databases | MySQL and MariaDB, PostgreSQL, SQL Server, SQLite | Scripts for any of those, including SQL Server scripts |
 | Explain and write SQL | Yes | Yes |
 | Row counts and statistics | Yes | No |
@@ -30,6 +36,7 @@ Understand any database by chatting with it. Share a live database (read-only) o
 - **Read-only.** Only one SELECT (or EXPLAIN of a SELECT) can run. It is checked first, then run in a read-only transaction that is never committed, with a 100-row limit and a 15-second limit. SQLite files are copied into memory, so the file is never touched. Use a read-only database account too.
 - **You press Run.** The AI suggests, you decide.
 - **Rows stay private.** The AI sees names, keys, counts and simple statistics, never row values. If you want it to explain a result, press **Let the AI see these rows**: a few rows are sent, with sensitive-looking columns hidden.
+- **Encrypted connections check the server's certificate.** For a self-signed certificate, choose your provider's certificate authority file, or connect without the check for that connection.
 - **Passwords and keys** are kept in VS Code secret storage.
 - **No telemetry.**
 
@@ -38,15 +45,21 @@ Details: [SECURITY.md](SECURITY.md) and [PRIVACY.md](PRIVACY.md).
 ## Get started
 
 1. Open the **DB Explainer** icon in the activity bar.
-2. **Add a database connection**, or share a SQL file.
-3. Set up your AI (below), then open the chat and ask.
+2. Press **Try the sample database** to look around with no setup, or **Add a database connection** (pasting a connection string works), or share a SQL file.
+3. Press **Use Copilot** if you have GitHub Copilot, or add a free AI key (below), then ask in the chat.
+4. Open any `.sql` file: problems are underlined, and **Explain** and **Check speed** appear above each statement.
+
+The sidebar's title bar also has **Show Table Diagram**, and the `...` menu has **Export Data Dictionary**. A short walkthrough opens from **Help > Welcome**.
 
 ## Bring your own AI
 
-DB Explainer has no AI of its own. It works with Gemini, Groq, OpenRouter, OpenAI, Claude or a local Ollama.
+DB Explainer has no AI of its own. It works with GitHub Copilot (no key: press **Use Copilot** in the chat or run **DB Explainer: Use GitHub Copilot**), Gemini, Groq, OpenRouter, OpenAI, Claude or a local Ollama.
 
 Open **DB Explainer: Manage AI Keys** and add a profile for **Gemini, Groq, OpenRouter, OpenAI, Claude or Ollama**. Each profile has its own address, model, key and optional expiry date. The status bar shows the one in use; click it to switch in one step.
 
+- **Several keys on one profile.** Paste one or several keys in the box on a profile and each is checked straight away. When a key has expired, is refused (401 or 403) or hits a rate limit (429), the next valid key of that profile is used automatically and the chat tells you. Every key goes only to that profile's own address. Check your provider's terms before using several keys to get past its limits.
+- **Several model versions on one profile.** Save versions under **Saved models** and press one to use it, or pick it from the status bar.
+- **Retired models are replaced for you.** Saving a key checks which models the service offers today and picks the best one if yours is gone. If a model disappears later, the next question tries your other saved models and then the service's own list, best first, keeps the first one that answers, and tells you.
 - **Keys stay in VS Code secret storage**, never in settings, and the page only shows the last four characters.
 - **Warned 3 days before a key expires.** An expired key is never used.
 - **Fallback (optional).** Turn on **Manage AI Keys > Fall back to the next valid profile on 401, 429 or 503** and a 401, 429 or 503 answer moves on to the next valid profile. Your table and column names then go to that service, and you are asked to allow it the first time.
@@ -75,6 +88,10 @@ Run **DB Explainer: Add a Team Note**, or use the note box under an answer. Note
 | Command | What it does |
 |---|---|
 | DB Explainer: Open Chat | Opens the chat panel |
+| DB Explainer: Try the Sample Database | Opens a small read-only store database, so you can try everything with no setup |
+| DB Explainer: Explain This SQL / Why Is This Query Slow? | Act on the statement under the cursor (also above each statement, and on the editor's right-click menu) |
+| DB Explainer: Show Table Diagram / Export Data Dictionary | Picture and Markdown description of the database in use |
+| DB Explainer: Use GitHub Copilot (No Key) | Sets up Copilot in one step |
 | DB Explainer: Add Database Connection | Saves and connects a database |
 | DB Explainer: Share SQL With the Chat | Shares the open file, the selection, or clipboard SQL |
 | DB Explainer: Refresh Schema | Reads the structure again |
@@ -103,6 +120,7 @@ Run **DB Explainer: Add a Team Note**, or use the note box under an answer. Note
 
 ```
 npm ci
+npm run try                 # builds and opens a separate VS Code window running this copy
 npm run build
 npm test                    # unit tests, includes a real SQLite database
 node test/integration/docker.js up

@@ -46,6 +46,18 @@ export function lintSql(model: SchemaModel, sql: string, nullCounts?: NullCounts
   const text = clean(sql);
   const warnings: string[] = [];
 
+  // = NULL is never true, so the condition silently matches nothing.
+  for (const m of text.matchAll(/([\w.`"\[\]]+)\s*(=|<>|!=)\s*NULL\b/gi)) {
+    if (/^(set|is)$/i.test(m[1])) continue;
+    warnings.push(`\`${m[1]} ${m[2]} NULL\` is never true, so it matches no rows. Use \`${m[1]} IS ${m[2] === '=' ? '' : 'NOT '}NULL\`.`);
+  }
+
+  // Tables listed with commas and nothing linking them pair every row of one with every row of the other.
+  const comma = text.match(/\bFROM\s+([`"\[\]\w.]+)(?:\s+(?:AS\s+)?(?!(?:where|join|on|group|order|limit)\b)\w+)?\s*,\s*([`"\[\]\w.]+)/i);
+  if (comma && (text.match(/\bselect\b/gi) ?? []).length === 1 && !/\bWHERE\b/i.test(text)) {
+    warnings.push(`\`${comma[1]}\` and \`${comma[2]}\` are listed with a comma and nothing links them, so every row of one is paired with every row of the other. Join them with \`JOIN ... ON\`.`);
+  }
+
   // NOT IN over a column that allows NULL returns nothing at all.
   for (const m of text.matchAll(NOT_IN)) {
     const table = findTable(model, m[2]);

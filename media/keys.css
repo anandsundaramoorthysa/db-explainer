@@ -1,3 +1,5 @@
+/* Rules below set display on fields and buttons, which would otherwise beat the hidden attribute. */
+[hidden] { display: none !important; }
 body.keys header { flex-wrap: wrap; }
 body.keys h1 { font-size: 1.2em; margin: 0; font-weight: 600; }
 body.keys header .check { flex: 1; margin-left: 12px; opacity: .85; display: flex; gap: 6px; align-items: center; min-width: 220px; }
@@ -34,3 +36,16 @@ button.danger:hover { color: var(--vscode-errorForeground); }
 .formcard h2 { margin: 0 0 10px; font-size: 1.05em; }
 .formerror { color: var(--vscode-errorForeground); min-height: 1.2em; margin-bottom: 4px; }
 .empty { opacity: .75; }
+.versions, .keyrows, .addkey { margin-top: 10px; }
+.addkey { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.addkey input[type=password] { flex: 1 1 200px; }
+.versions .name { font-size: .85em; opacity: .75; display: block; margin-bottom: 3px; }
+.versionrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.version { display: inline-flex; gap: 6px; align-items: center; font-size: .9em; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--vscode-panel-border); max-width: 100%; overflow-wrap: anywhere; }
+.version.on { border-color: var(--vscode-focusBorder); font-weight: 600; }
+.version.on button { color: inherit; text-decoration: none; cursor: default; }
+.versionrow input { flex: 1 1 160px; }
+.keyrow { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--vscode-panel-border); }
+.keyrow.status-expired .mask, .keyrow.status-expired .expiry { opacity: .65; }
+.keyrow .expiry { font-size: .9em; opacity: .85; }
+.keyacts { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }

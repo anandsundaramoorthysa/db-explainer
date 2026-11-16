@@ -2,7 +2,7 @@
   const vscode = acquireVsCodeApi();
   const $ = (id) => document.getElementById(id);
   const log = $('log'), input = $('input'), form = $('form'), sourceSel = $('source'), banner = $('banner'), thinking = $('thinking'), send = $('send');
-  let sources = [], activeId, aiReady = true, waiting = false;
+  let sources = [], activeId, aiReady = true, copilot = false, waiting = false;
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -44,16 +44,14 @@
     if (!sources.length) parts.push('Nothing is shared yet. Use the DB Explainer sidebar to add a database connection, or right-click a .sql file and choose "Share SQL With the Chat".');
     if (active && active.kind === 'sql') parts.push('This is shared SQL, so there is no data. You can ask about the structure and ask for queries, but not run them.');
     if (active && active.warnings.length) parts.push(active.warnings.length + ' statement(s) could not be read fully; the AI still sees the original text.');
-    if (!aiReady) parts.push('No AI is set up yet. Add a free Groq or Gemini key to start asking questions.');
+    if (!aiReady) parts.push(copilot ? 'No AI is set up yet. Use GitHub Copilot with no key, or add a free Groq or Gemini key.' : 'No AI is set up yet. Add a free Groq or Gemini key to start asking questions.');
     banner.hidden = !parts.length;
     banner.className = 'banner' + (!aiReady ? ' warn' : '');
     banner.textContent = parts.join(' ');
-    if (!aiReady) {
-      const b = el('button', '', 'Add an AI key');
-      b.type = 'button';
-      b.onclick = () => vscode.postMessage({ type: 'manageAi' });
-      banner.append(' ', b);
-    }
+    const action = (text, type, cls) => { const b = el('button', cls || '', text); b.type = 'button'; b.onclick = () => vscode.postMessage({ type }); banner.append(' ', b); };
+    if (!sources.length) action('Try the sample database', 'trySample', 'ghost');
+    if (!aiReady && copilot) action('Use Copilot (no key)', 'useCopilot');
+    if (!aiReady) action('Add an AI key', 'manageAi', copilot ? 'ghost' : '');
   }
 
   function renderSources() {
@@ -77,6 +75,12 @@
     const copy = el('button', 'ghost', 'Copy');
     const open = el('button', 'ghost', 'Open in editor');
     bar.append(run, copy, open);
+    if (canRun && /^\s*(select|with)\b/i.test(sql)) {
+      const speed = el('button', 'ghost', 'Why slow?');
+      speed.title = 'Asks the database how it would run this query, without running it, and explains how to make it faster.';
+      speed.onclick = () => vscode.postMessage({ type: 'speed', sql });
+      bar.appendChild(speed);
+    }
     if (canRun) bar.appendChild(el('span', 'hint', 'Nothing runs until you press Run.'));
     box.appendChild(bar);
     const out = el('div', 'result');
@@ -126,14 +130,28 @@
     parent.appendChild(row);
   }
 
-  function setWaiting(on) { waiting = on; send.disabled = on; thinking.hidden = !on; }
+  function setWaiting(on) { waiting = on; send.disabled = on; thinking.hidden = !on; if (!on) { thinking.textContent = 'Thinking...'; endDraft(); } }
+
+  // The reply as it is written. It is plain text with no Run buttons: those only appear on the checked answer that replaces it.
+  let draft;
+  function endDraft() { if (draft) { draft.m.remove(); draft = undefined; } }
 
   window.addEventListener('message', (e) => {
     const m = e.data;
     switch (m.type) {
-      case 'state': sources = m.sources; activeId = m.activeId; aiReady = m.aiReady; renderSources(); break;
+      case 'state': sources = m.sources; activeId = m.activeId; aiReady = m.aiReady; copilot = !!m.copilot; renderSources(); break;
+      case 'echo': { const u = add('user', 'You'); u.body.textContent = m.text; scrollDown(); break; }
       case 'thinking': setWaiting(m.on); break;
+      case 'draft': {
+        if (!draft) { draft = add('bot draft', 'DB Explainer'); draft.body.setAttribute('aria-hidden', 'true'); }
+        draft.body.textContent = m.text;
+        thinking.hidden = true;
+        scrollDown();
+        break;
+      }
+      case 'checking': thinking.textContent = 'Checking the answer...'; thinking.hidden = false; scrollDown(); break;
       case 'answer': {
+        endDraft();
         const a = add('bot', 'DB Explainer');
         a.body.innerHTML = m.html;
         for (const link of a.body.querySelectorAll('a')) {
@@ -150,7 +168,7 @@
         if (pendingRun) { pendingRun._run.disabled = false; const o = pendingRun._out; o.replaceChildren(el('div', 'meta', m.text)); pendingRun = undefined; }
         break;
       }
-      case 'error': { const x = add('error', 'DB Explainer'); x.body.textContent = m.text; scrollDown(); break; }
+      case 'error': { endDraft(); const x = add('error', 'DB Explainer'); x.body.textContent = m.text; scrollDown(); break; }
       case 'redactLast': { const users = log.querySelectorAll('.msg.user .body'); if (users.length) users[users.length - 1].textContent = m.text; break; }
       case 'notice': { banner.hidden = false; banner.className = 'banner'; banner.textContent = m.text; break; }
       case 'prefill': input.value = m.text; if (m.send) submit(); else input.focus(); break;

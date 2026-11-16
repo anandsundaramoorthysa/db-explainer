@@ -9,6 +9,9 @@ export interface Statement {
   text: string;
   /** 1-based line where the statement starts. */
   line: number;
+  /** Where the statement starts and ends in the text, when asked for. Comments before it are not included. */
+  start?: number;
+  end?: number;
 }
 
 export interface ImportResult {
@@ -23,22 +26,28 @@ const DEFAULT_SCHEMAS = new Set(['public', 'dbo', 'main']);
 const PARSER = new Parser();
 
 /** Splits SQL text on semicolons while respecting strings, quoted names, comments and $$ blocks. Also drops T-SQL GO lines. */
-export function splitStatements(sql: string): Statement[] {
+export function splitStatements(sql: string, withOffsets = false): Statement[] {
   const out: Statement[] = [];
   let current = '';
   let startLine = 1;
+  let startOffset = 0;
   let line = 1;
   let i = 0;
   let began = false;
   const push = (): void => {
     const text = current.trim();
-    if (text) out.push({ text, line: startLine });
+    if (text) {
+      let end = Math.min(i, sql.length);
+      while (end > startOffset && /\s/.test(sql[end - 1])) end -= 1;
+      out.push(withOffsets ? { text, line: startLine, start: startOffset, end } : { text, line: startLine });
+    }
     current = '';
     began = false;
   };
   const begin = (): void => {
     if (!began) {
       startLine = line;
+      startOffset = i;
       began = true;
     }
   };

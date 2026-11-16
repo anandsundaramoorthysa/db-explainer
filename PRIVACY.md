@@ -24,7 +24,13 @@ Each question sends one request to the service of the profile in use (or the one
 - the matching lines of your team notes
 - for shared SQL, the text of the file you shared
 
-Before an answer is shown, DB Explainer checks the SQL it contains. On a live connection to SQLite, MySQL, MariaDB or PostgreSQL it asks the database to plan each query with `EXPLAIN`, which compiles the query without running it and reads no rows. If the database refuses a query, the database's error message (it names tables, columns or SQL keywords) is sent to your AI service once, so the assistant can correct the query. SQL Server connections are not planned, and shared SQL has no database to ask.
+Before an answer is shown, DB Explainer checks the SQL it contains. On a live connection it asks the database to compile each query without running it, so no rows are read: `EXPLAIN` on SQLite, MySQL, MariaDB and PostgreSQL, and `sp_describe_first_result_set` on SQL Server. If the database refuses a query, the database's error message (it names tables, columns or SQL keywords) is sent to your AI service once, so the assistant can correct the query. Shared SQL has no database to ask.
+
+When you ask why a query is slow, the database's plan for it is sent too. The plan comes from `EXPLAIN`, which does not run the query: it holds the database's estimates (such as how many rows it expects to read) and the query's own text, not row values.
+
+If you use GitHub Copilot, the same request goes to Copilot through VS Code instead of to an address you set, under GitHub's terms. VS Code asks you once to allow DB Explainer to use Copilot, and DB Explainer asks once too. `@dex` in Copilot Chat sends exactly what the DB Explainer chat sends.
+
+The checks that underline problems in .sql files, the table diagram and the data dictionary send nothing anywhere: they work from the structure on your computer.
 
 **Row values are not sent** unless you press **Let the AI see these rows**. Then up to `dbExplainer.ai.sampleRows` rows are sent, with columns that look sensitive (such as email, phone, password, token, card, national ID) replaced by `[hidden]` and emails, long numbers and tokens removed from other values. This reduces the risk but cannot catch everything.
 

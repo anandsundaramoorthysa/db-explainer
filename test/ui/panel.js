@@ -49,6 +49,15 @@ async function launch() {
   assert.ok(/Nothing is shared yet/.test(banner) && /No AI/.test(banner));
   await page.click('#banner button:has-text("Add an AI key")');
   assert.deepStrictEqual((await sent()).at(-1), { type: 'manageAi' });
+  // One click to something that works: the sample database, and Copilot only where it is available.
+  assert.strictEqual(await page.locator('#banner button:has-text("Use Copilot")').count(), 0, 'no Copilot button without Copilot');
+  await page.click('#banner button:has-text("Try the sample database")');
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'trySample' });
+  await send({ type: 'state', sources: [], activeId: undefined, aiReady: false, copilot: true });
+  await settle();
+  assert.ok(/Use GitHub Copilot with no key/.test(await page.textContent('#banner')));
+  await page.click('#banner button:has-text("Use Copilot (no key)")');
+  assert.deepStrictEqual((await sent()).at(-1), { type: 'useCopilot' });
 
   // A live database and a shared script appear in the selector.
   await send({ type: 'state', aiReady: true, activeId: 'a', sources: [
@@ -78,14 +87,36 @@ async function launch() {
   await settle();
   assert.ok(await page.isDisabled('#send'));
 
+  // A reply being written: shown as plain text, with no Run button, then replaced by the checked answer.
+  await send({ type: 'draft', text: 'Partly <img src=x onerror="window.__pwned=1"> written' });
+  await send({ type: 'draft', text: 'Partly <img src=x onerror="window.__pwned=1"> written\n```sql\nDELETE FROM orders\n```' });
+  await settle();
+  assert.strictEqual(await page.locator('.msg.draft').count(), 1, 'one bubble, updated in place');
+  assert.ok((await page.locator('.msg.draft .body').textContent()).includes('<img'), 'text, not markup');
+  assert.strictEqual(await page.locator('.msg.draft button').count(), 0, 'nothing can be run from a draft');
+  assert.ok(await page.locator('#thinking').isHidden());
+  await send({ type: 'checking' });
+  await settle();
+  assert.strictEqual(await page.locator('#thinking').textContent(), 'Checking the answer...');
+  assert.ok(await page.locator('#thinking').isVisible());
+
   // An answer: markdown HTML, a SQL block with a Run button, links only open when https.
   await send({ type: 'thinking', on: false });
+  await settle();
+  assert.strictEqual(await page.locator('.msg.draft').count(), 0, 'the draft is gone once the work is over');
+  assert.strictEqual(await page.locator('#thinking').textContent(), 'Thinking...');
   await send({ type: 'answer', canRun: true, statsUsed: true, tables: ['orders'], sql: ['SELECT COUNT(*) FROM orders'],
     html: '<p>Count <code>orders</code> <a href="https://example.com/doc" data-external="1">docs</a> <a href="#" aria-disabled="true">bad</a></p><script>window.__pwned = 1</script>' });
   await settle();
   assert.strictEqual(await page.locator('.msg.bot .who').first().textContent(), 'Dex');
   assert.strictEqual(await page.locator('.msg.bot .avatar svg').count(), 1);
   assert.strictEqual(await page.locator('.sqlblock pre').textContent(), 'SELECT COUNT(*) FROM orders');
+  // A query that can run can also be checked for speed, which asks the database without running it.
+  await page.locator('.sqlblock button:has-text("Why slow?")').click();
+  assert.deepStrictEqual((await page.evaluate(() => window.__sent)).at(-1), { type: 'speed', sql: 'SELECT COUNT(*) FROM orders' });
+  await send({ type: 'echo', text: 'Why is this query slow?\nSELECT 1' });
+  await settle();
+  assert.ok((await page.locator('.msg.user .body').last().textContent()).startsWith('Why is this query slow?'));
   assert.strictEqual(await page.evaluate(() => window.__pwned), undefined, 'script in an answer did not run');
   await page.click('text=docs');
   assert.deepStrictEqual((await sent()).at(-1), { type: 'link', href: 'https://example.com/doc' });

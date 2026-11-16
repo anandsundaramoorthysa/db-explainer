@@ -95,6 +95,13 @@ export interface ConnectionProfile {
   /** SQLite database file. */
   filePath?: string;
   ssl?: boolean;
+  /**
+   * Check the server's certificate on an encrypted connection. Missing means yes. Set to false only when the developer chose
+   * "Connect anyway", for a server with a self-signed certificate.
+   */
+  tlsVerify?: boolean;
+  /** A certificate authority file (PEM) to trust for this connection, such as the one AWS RDS publishes. */
+  caFile?: string;
   /** SQL Server only. Defaults to true for local servers and false for remote ones. */
   trustServerCertificate?: boolean;
 }

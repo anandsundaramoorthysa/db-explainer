@@ -38,8 +38,9 @@ export class DatabaseTree implements vscode.TreeDataProvider<Node> {
       const s = this.sources.get(node.id);
       const item = new vscode.TreeItem(s?.label ?? node.id, vscode.TreeItemCollapsibleState.Expanded);
       item.id = `shared:${node.id}`;
-      item.description = 'shared SQL';
-      item.iconPath = new vscode.ThemeIcon('file-code');
+      // Shared SQL, or a live database that is not saved, such as the sample.
+      item.description = s?.kind === 'live' ? `${ENGINE_LABEL[s.model.engine]} - read-only sample` : 'shared SQL';
+      item.iconPath = new vscode.ThemeIcon(s?.kind === 'live' ? 'beaker' : 'file-code');
       item.contextValue = 'connectionShared';
       return item;
     }
@@ -67,7 +68,7 @@ export class DatabaseTree implements vscode.TreeDataProvider<Node> {
   getChildren(node?: Node): Node[] {
     if (!node) {
       const connections = this.store.list().map((profile): Node => ({ kind: 'connection', profile }));
-      const shared = this.sources.list().filter((s) => s.kind === 'sql').map((s): Node => ({ kind: 'shared', id: s.id }));
+      const shared = this.sources.list().filter((s) => s.kind === 'sql' || !this.store.get(s.id)).map((s): Node => ({ kind: 'shared', id: s.id }));
       return [...connections, ...shared];
     }
     if (node.kind === 'connection' || node.kind === 'shared') {

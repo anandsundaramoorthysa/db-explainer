@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
-import { AiConfig, AiError, isLocalUrl, normalizeBaseUrl } from './ai/client';
-import { keyProblem } from './ai/keyScan';
+import { AiConfig, isLocalUrl } from './ai/client';
+import { AddressChoice, saveProfileForm } from './ai/profileForm';
 import { AiService } from './ai/service';
-import { describeExpiry, isValidDate, maskKey, newProfileId, preset, PRESETS, Profile, ProfileStore, Provider, statusOf } from './ai/profiles';
+import { describeExpiry, describeKeyExpiry, isValidDate, keysOf, keyStatus, maskKey, modelsOf, preset, PRESETS, ProfileStore, Provider, statusOf, withModel } from './ai/profiles';
+import { addAndCheckKeys } from './changeKey';
 
 export interface KeysDeps {
   store: ProfileStore;
@@ -10,11 +11,14 @@ export interface KeysDeps {
   fallback: () => boolean;
   setFallback: (on: boolean) => PromiseLike<void>;
   legacy: () => AiConfig;
+  /** Copilot's models, or none when Copilot is not available. */
+  copilotModels?: () => Promise<string[]>;
 }
 
 interface Inbound {
   type: string;
   id?: string;
+  keyId?: string;
   label?: string;
   provider?: Provider;
   baseUrl?: string;
@@ -84,7 +88,14 @@ export class KeysPanel {
     const inUse = store.active()?.id;
     const profiles = await Promise.all(
       store.list().map(async (p) => {
-        const key = await store.key(p.id);
+        const current = store.currentKeyId(p);
+        const keys = await Promise.all(
+          keysOf(p).map(async (k) => {
+            const value = await store.key(p.id, k.id);
+            return { id: k.id, mask: maskKey(value), hasKey: !!value, expiresAt: k.expiresAt ?? '', expiryText: describeKeyExpiry(k, now), status: keyStatus(k, now), inUse: k.id === current };
+          }),
+        );
+        const key = await store.key(p.id, current);
         return {
           id: p.id,
           label: p.label,
@@ -92,7 +103,9 @@ export class KeysPanel {
           providerName: preset(p.provider).name,
           baseUrl: p.baseUrl,
           model: p.model,
-          models: [...new Set([...preset(p.provider).models, p.model, ...(this.fetched.get(p.id) ?? [])].filter(Boolean))],
+          models: [...new Set([...preset(p.provider).models, ...modelsOf(p), ...(this.fetched.get(p.id) ?? [])].filter(Boolean))],
+          savedModels: modelsOf(p),
+          keys,
           expiresAt: p.expiresAt ?? '',
           expiryText: describeExpiry(p, now),
           status: statusOf(p, now),
@@ -104,12 +117,16 @@ export class KeysPanel {
       }),
     );
     const legacy = this.deps.legacy();
+    const copilot = (await this.deps.copilotModels?.().catch(() => [])) ?? [];
+    // Copilot is only offered where it can work, unless a profile already uses it.
+    const offered = PRESETS.filter((p) => p.provider !== 'vscode' || copilot.length || profiles.some((x) => x.provider === 'vscode'));
     void this.panel.webview.postMessage({
       type: 'state',
       profiles,
       fallback: this.deps.fallback(),
+      copilot: copilot.length > 0,
       legacy: profiles.length ? undefined : { baseUrl: legacy.baseUrl, model: legacy.model },
-      presets: PRESETS.map((p) => ({ provider: p.provider, name: p.name, baseUrl: p.baseUrl, models: p.models, keyUrl: p.keyUrl })),
+      presets: offered.map((p) => ({ provider: p.provider, name: p.name, baseUrl: p.baseUrl, models: p.provider === 'vscode' ? copilot : p.models, keyUrl: p.keyUrl })),
       pendingKey: this.pending ? { provider: this.pending.provider } : undefined,
     });
   }
@@ -134,7 +151,7 @@ export class KeysPanel {
       case 'delete': {
         const p = store.get(m.id);
         if (!p) return;
-        const pick = await vscode.window.showWarningMessage(`Delete the profile "${p.label}" and its saved key? This cannot be undone.`, { modal: true }, 'Delete');
+        const pick = await vscode.window.showWarningMessage(`Delete the profile "${p.label}" and ${keysOf(p).length > 1 ? `its ${keysOf(p).length} saved keys` : 'its saved key'}? This cannot be undone.`, { modal: true }, 'Delete');
         if (pick !== 'Delete') return;
         const wasInUse = store.active()?.id === p.id;
         await store.remove(p.id);
@@ -157,23 +174,71 @@ export class KeysPanel {
       case 'setModel': {
         const p = store.get(m.id);
         const model = m.model?.trim();
-        if (p && model && model !== p.model) await store.save({ ...p, model });
+        if (p && model && model !== p.model) await store.save(withModel(p, model));
         else if (p) void this.push();
         return;
       }
-      case 'changeKey':
-        if (m.id) await vscode.commands.executeCommand('dbExplainer.ai.changeKey', m.id);
-        return;
-      case 'test': {
+      case 'addModel': {
         const p = store.get(m.id);
-        if (!p) return;
-        void this.panel.webview.postMessage({ type: 'testing', id: p.id });
-        const r = await this.deps.service.test(p.id);
-        if (r.models.length) this.fetched.set(p.id, r.models);
-        await this.push();
-        void this.panel.webview.postMessage({ type: 'testResult', id: p.id, ok: r.ok, text: r.message });
+        const model = m.model?.trim();
+        if (p && model) await store.save({ ...p, models: [...new Set([...modelsOf(p), model])] });
         return;
       }
+      case 'removeModel': {
+        const p = store.get(m.id);
+        // The model in use always stays: pick another one first.
+        if (p && m.model && m.model !== p.model) await store.save({ ...p, models: modelsOf(p).filter((x) => x !== m.model) });
+        return;
+      }
+      case 'changeKey':
+        if (m.id) await vscode.commands.executeCommand('dbExplainer.ai.changeKey', m.id, m.keyId);
+        return;
+      case 'addKeys': {
+        const p = store.get(m.id);
+        if (!p || !m.key?.trim()) return;
+        void this.panel.webview.postMessage({ type: 'testing', id: p.id });
+        const r = await addAndCheckKeys(store, this.deps.service, p.id, m.key, m.expiresAt?.trim() || undefined);
+        return this.showTest(p.id, r.ok, r.text);
+      }
+      case 'setKeyDate': {
+        const p = store.get(m.id);
+        const date = (m.expiresAt ?? '').trim();
+        if (!p || !m.keyId || (date && !isValidDate(date))) return;
+        await store.setKeyExpiry(p.id, m.keyId, date);
+        return;
+      }
+      case 'testKey': {
+        const p = store.get(m.id);
+        if (!p || !m.keyId) return;
+        const at = keysOf(p).findIndex((k) => k.id === m.keyId) + 1;
+        void this.panel.webview.postMessage({ type: 'testing', id: p.id });
+        const r = await this.deps.service.test(p.id, m.keyId);
+        if (r.models.length) this.fetched.set(p.id, r.models);
+        return this.showTest(p.id, r.ok, `Key ${at}: ${r.message}`);
+      }
+      case 'useKey': {
+        const p = store.get(m.id);
+        const entry = p && keysOf(p).find((k) => k.id === m.keyId);
+        if (!p || !entry) return;
+        if (keyStatus(entry, new Date()) === 'expired') {
+          void vscode.window.showWarningMessage(`That key expired on ${entry.expiresAt}. Change its expiry date first.`);
+          return;
+        }
+        await store.setCurrentKey(p.id, entry.id);
+        return;
+      }
+      case 'removeKey': {
+        const p = store.get(m.id);
+        const keys = p ? keysOf(p) : [];
+        const at = keys.findIndex((k) => k.id === m.keyId);
+        if (!p || at < 0) return;
+        const pick = await vscode.window.showWarningMessage(`Remove key ${at + 1} from "${p.label}"? This cannot be undone.`, { modal: true }, 'Remove');
+        if (pick === 'Remove') await store.removeKey(p.id, keys[at].id);
+        return;
+      }
+      case 'test':
+        if (m.id) await this.check(m.id);
+        return;
       case 'setFallback':
         await this.deps.setFallback(!!m.on);
         return this.push();
@@ -181,41 +246,41 @@ export class KeysPanel {
         // Only the key pages of the presets can be opened, whatever the page asks for.
         if (m.href && PRESETS.some((p) => p.keyUrl === m.href)) await vscode.env.openExternal(vscode.Uri.parse(m.href));
         return;
+      case 'useCopilot':
+        await vscode.commands.executeCommand('dbExplainer.ai.useCopilot');
+        return;
       case 'discardPending':
         this.pending = undefined;
         return this.push();
     }
   }
 
+  /** Asks the service for its model list, which also proves the key works and fills the model dropdown. */
+  private async check(id: string): Promise<void> {
+    void this.panel.webview.postMessage({ type: 'testing', id });
+    const r = await this.deps.service.test(id);
+    if (r.models.length) this.fetched.set(id, r.models);
+    // The suggested model may be gone by now. Rather than leave a model that will fail, take the best one the service offers.
+    const was = this.deps.store.get(id)?.model;
+    const chosen = r.ok ? await this.deps.service.adoptOfferedModel(id, r.models) : undefined;
+    await this.showTest(id, r.ok, chosen ? `The service answered. "${was}" is not offered any more, so "${chosen}" was picked for you. You can change it under Saved models.` : r.message);
+  }
+
   private async save(m: Inbound): Promise<void> {
-    const { store } = this.deps;
-    const existing = m.id ? store.get(m.id) : undefined;
-    const provider = m.provider ?? 'custom';
-    const label = (m.label ?? '').trim() || preset(provider).name;
-    const baseUrl = (m.baseUrl ?? '').trim();
-    const model = (m.model ?? '').trim();
-    const expiresAt = (m.expiresAt ?? '').trim();
-    // A key typed in the form wins. Otherwise a key pasted in the chat is used for a new profile, and an existing one is kept.
-    const typed = (m.key ?? '').trim();
-    const problem = typed ? keyProblem(typed) : undefined;
-    if (problem) return this.error(problem);
-    const key = typed || (!existing ? this.pending?.key : undefined);
-    const hasKey = !!(key || (existing && (await store.key(existing.id))));
-
-    if (!baseUrl) return this.error('Enter the base URL of the service.');
-    try {
-      normalizeBaseUrl(baseUrl, hasKey);
-    } catch (e) {
-      return this.error((e as AiError).message.replace(/ Fix the setting dbExplainer\.ai\.baseUrl\./, ''));
-    }
-    if (!model) return this.error('Enter a model name.');
-    if (expiresAt && !isValidDate(expiresAt)) return this.error('The expiry date must be a real date.');
-    if (!hasKey && !isLocalUrl(baseUrl)) return this.error('This service needs an API key.');
-
-    const profile: Profile = { id: existing?.id ?? newProfileId(), label, provider, baseUrl, model, ...(expiresAt ? { expiresAt } : {}) };
-    await store.save(profile, key);
-    if (!existing) this.pending = undefined;
+    const isNew = !m.id;
+    const r = await saveProfileForm(this.deps.store, m, {
+      pendingKey: this.pending?.key,
+      confirmAddress: async (host, count): Promise<AddressChoice> => {
+        const keys = count === 1 ? 'Your saved key' : `Your ${count} saved keys`;
+        const pick = await vscode.window.showWarningMessage(`${keys} would start going to ${host}. Only keep them if they belong to that service.`, { modal: true }, 'Keep and send them', 'Remove them');
+        return pick === 'Keep and send them' ? 'keep' : pick === 'Remove them' ? 'remove' : undefined;
+      },
+    });
+    if ('error' in r) return this.error(r.error);
+    if (isNew) this.pending = undefined;
     void this.panel.webview.postMessage({ type: 'saved' });
+    // No need to press anything: saving checks the key and fills the model dropdown.
+    await this.check(r.id);
   }
 
   private html(context: vscode.ExtensionContext): string {
@@ -233,6 +298,7 @@ export class KeysPanel {
 <header>
   <h1>AI keys</h1>
   <label class="check"><input type="checkbox" id="fallback"> Fall back to the next valid profile on 401, 429 or 503</label>
+  <button id="copilot" class="ghost" hidden>Use Copilot (no key)</button>
   <button id="add">Add profile</button>
 </header>
 <div id="banner" class="banner" role="status" hidden></div>

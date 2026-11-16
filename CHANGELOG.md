@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+New
+
+- **Several API keys on one profile.** Paste one or several keys into the box on a profile, or in the Add form, each with an optional expiry date and its own Test button. When a key has expired, is refused (401 or 403) or hits a rate limit (429), the next valid key of the same profile is used automatically, the chat says so, and that key is tried first from then on. A profile counts as expired only when all its keys have. Keys go only to the profile's own address, and profiles from 1.1.0 keep working unchanged.
+- **Several model versions on one profile.** Save versions under "Saved models" and press one to use it, or pick it from the status bar menu.
+- **Replies appear as they are written.** The checked answer replaces the draft when it is ready, and Run buttons only appear on the checked answer.
+- **SQL Server queries are checked too.** A suggested query is compiled with sp_describe_first_result_set without being run, so the assistant can fix one the database refuses.
+- **A retired model is replaced for you.** Saving a key picks the best model the service offers today if the suggested one is gone. If a model disappears later, the question is tried with your other saved models and then the service's own models, best first, and the first that answers becomes the model in use. You only see an error if none answers.
+
+- **Underlines problems in .sql files as you type, with no AI**: `= NULL`, a misspelled command such as `SELEC`, an unknown column, a comma join with nothing linking the tables, and a function on a filtered column. The `= NULL` and comma-join checks also make Dex correct its own SQL.
+- **Explain and Check speed above every statement** in .sql files, and on the editor's right-click menu. Explaining a statement with nothing shared shares the file first, so its own tables are used.
+- **Why is this slow?** The database is asked how it would run the query (EXPLAIN, nothing is run), and Dex explains the plan and suggests indexes. Also a "Why slow?" button under every query in the chat. Not yet on SQL Server.
+- **Table diagram**: every table and its links, with keys marked. Click a table to ask about it, or copy the picture as Mermaid.
+- **Data dictionary**: one command writes a Markdown page about every table, with the diagram and the team notes. It opens unsaved, so nothing is overwritten.
+- **Try the sample database** with no setup, from the sidebar, the chat or the walkthrough.
+- **GitHub Copilot with no key**: one click sets it up, and `@dex` answers in Copilot Chat. Needs VS Code 1.90 or later.
+
+Fewer steps
+
+- **Paste a connection string** to add a database in one go. Adding one by hand is also shorter: host and port share a box, the name is filled in, and encryption is only asked about for a server that is not on your computer.
+- **The provider picks itself** from the key you paste, when the key's shape shows it.
+- **Saving a profile checks the key straight away** and fills the model dropdown from the service's own list.
+- Key expiry dates can be changed right on the key's row.
+
+Fixed
+
+- Editing a profile's address to a different host now asks first, instead of quietly sending the saved keys to the new address.
+- A notes path pointing at a neighbouring folder with a similar name (C:\proj-other beside C:\proj) is now refused.
+- A long reply no longer fails just because it took more than 60 seconds overall. The limit now counts from the last text received.
+- Error messages no longer name an old command or send people using profiles to the settings.
+
+Changed
+
+- **Encrypted Postgres and MySQL connections now check the server's certificate.** Before, they were encrypted but did not check who was answering, so someone on the network could pretend to be the database and capture the password. If the check fails, one click either trusts your provider's certificate authority file or connects without the check, remembered for that connection. An existing encrypted connection to a server with a self-signed certificate asks once after this update. A connection string with `sslmode=no-verify` keeps working without the check.
+- VS Code 1.90 or later is now needed, for Copilot and Copilot Chat.
+
+For maintainers
+
+- The release workflow publishes to the Marketplace when a VSCE_PAT secret is set, and `npm run try` opens a test window.
+
 ## 1.1.0
 
 New

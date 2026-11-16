@@ -1,6 +1,7 @@
 import * as mysql from 'mysql2/promise';
 import { Column, ConnectionProfile, ForeignKey, IndexInfo, QueryLimits, QueryResult, Routine, SchemaModel, Table, emptyColumn, emptyTable } from '../types';
 import { Connector, QueryTimeoutError, schemaFor, toResult } from './connector';
+import { tlsFor } from './tls';
 
 const SYSTEM_SCHEMAS = ['mysql', 'information_schema', 'performance_schema', 'sys'];
 
@@ -20,7 +21,7 @@ export class MysqlConnector implements Connector {
       user: this.profile.user,
       password: this.password,
       database: this.profile.database || undefined,
-      ssl: this.profile.ssl ? { rejectUnauthorized: false } : undefined,
+      ssl: tlsFor(this.profile),
       connectTimeout: 10000,
       multipleStatements: false,
       dateStrings: true,

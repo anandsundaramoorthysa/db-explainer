@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isChatModel, rankModels, replacementsFor } from '../src/ai/modelPick';
 import { Memento, Profile, ProfileStore, Secrets } from '../src/ai/profiles';
-import { AiService } from '../src/ai/service';
+import { AiService, suggestModel } from '../src/ai/service';
 
 const GROQ_LIST = ['whisper-large-v3', 'llama-3.1-8b-instant', 'openai/gpt-oss-120b', 'meta-llama/llama-guard-4-12b', 'qwen/qwen3-32b', 'groq/compound', 'openai/gpt-oss-20b', 'playai-tts'];
 
@@ -21,7 +21,7 @@ describe('picking a model', () => {
   });
 
   it('tries the developer\x27s own saved models first, if the service still has them', () => {
-    expect(replacementsFor('dead', ['dead', 'llama-3.1-8b-instant', 'gone-too'], GROQ_LIST)).toEqual(['llama-3.1-8b-instant', 'openai/gpt-oss-120b', 'qwen/qwen3-32b', 'openai/gpt-oss-20b']);
+    expect(replacementsFor('dead', ['dead', 'llama-3.1-8b-instant', 'gone-too'], GROQ_LIST)).toEqual(['llama-3.1-8b-instant', 'openai/gpt-oss-120b', 'qwen/qwen3-32b']);
     expect(replacementsFor('dead', ['dead', 'mine'], [])).toEqual(['mine']);
   });
 });
@@ -53,7 +53,8 @@ describe('a model that has been retired', () => {
     const t = setup(['openai/gpt-oss-120b', 'qwen/qwen3-32b']);
     await t.store.save(groq, 'gsk_AAAAAAAAAAAAAAAAAAAAAAAA');
     expect(await t.service.chat(ask)).toBe('answer from openai/gpt-oss-120b');
-    expect(t.tried).toEqual(['llama-3.3-70b-versatile', 'openai/gpt-oss-120b']);
+    // The closest name (same family) is tried before the biggest model.
+    expect(t.tried).toEqual(['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'openai/gpt-oss-120b']);
     expect(t.notices[0]).toMatch(/"llama-3.3-70b-versatile" is no longer available, so DB Explainer switched to "openai\/gpt-oss-120b"/);
     const p = t.store.get('g')!;
     expect(p.model).toBe('openai/gpt-oss-120b');
@@ -67,7 +68,7 @@ describe('a model that has been retired', () => {
     const t = setup(['llama-3.1-8b-instant']);
     await t.store.save(groq, 'gsk_AAAAAAAAAAAAAAAAAAAAAAAA');
     expect(await t.service.chat(ask)).toBe('answer from llama-3.1-8b-instant');
-    expect(t.tried).toEqual(['llama-3.3-70b-versatile', 'openai/gpt-oss-120b', 'qwen/qwen3-32b', 'openai/gpt-oss-20b', 'llama-3.1-8b-instant']);
+    expect(t.tried).toEqual(['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']);
   });
 
   it('only gives up, with a clear message, when no model answers', async () => {
@@ -77,12 +78,12 @@ describe('a model that has been retired', () => {
     expect(t.store.get('g')!.model).toBe('llama-3.3-70b-versatile');
   });
 
-  it('picks the best offered model when a saved profile is checked and its model is not listed', async () => {
+  it('only suggests a model when a saved profile is checked, and changes nothing', async () => {
     const t = setup(['openai/gpt-oss-120b']);
     await t.store.save(groq, 'gsk_AAAAAAAAAAAAAAAAAAAAAAAA');
     const r = await t.service.test('g');
-    expect(await t.service.adoptOfferedModel('g', r.models)).toBe('openai/gpt-oss-120b');
-    expect(t.store.get('g')!.model).toBe('openai/gpt-oss-120b');
-    expect(await t.service.adoptOfferedModel('g', r.models)).toBeUndefined();
+    expect(suggestModel('llama-3.3-70b-versatile', r.models)).toBe('llama-3.1-8b-instant');
+    expect(t.store.get('g')!.model).toBe('llama-3.3-70b-versatile');
+    expect(suggestModel('qwen/qwen3-32b', r.models)).toBeUndefined();
   });
 });

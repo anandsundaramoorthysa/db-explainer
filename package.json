@@ -2,7 +2,7 @@
   "name": "db-explainer",
   "displayName": "DB Explainer",
   "description": "Understand any database by chatting with it, or with @dex in Copilot Chat. Connect read-only or paste SQL, ask in plain English, get SQL written, explained, checked and run safely, see a table diagram, and export a data dictionary. Use GitHub Copilot or your own AI key.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "AnandSundaramoorthySa",
   "author": {
     "name": "Anand Sundaramoorthy SA"
@@ -333,16 +333,19 @@
         "dbExplainer.ai.baseUrl": {
           "type": "string",
           "default": "http://localhost:11434/v1",
+          "scope": "machine",
           "markdownDescription": "Used only until you add a profile in **DB Explainer: Manage AI Keys**. Base URL of any OpenAI-compatible chat API. Examples: `http://localhost:11434/v1` (Ollama), `http://localhost:1234/v1` (LM Studio), `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`."
         },
         "dbExplainer.ai.model": {
           "type": "string",
           "default": "",
+          "scope": "machine",
           "markdownDescription": "Used only until you add a profile in **DB Explainer: Manage AI Keys**. Model name to request, for example `qwen2.5-coder:7b` or `gpt-4o-mini`."
         },
         "dbExplainer.ai.fallback": {
           "type": "boolean",
           "default": false,
+          "scope": "machine",
           "markdownDescription": "When the profile in use answers 401, 429 or 503, try the next valid profile instead of stopping. Expired keys are always skipped. Your table and column names are then sent to that profile's service, and you are asked to allow it the first time. API keys are never stored in settings: they live in VS Code secret storage."
         },
         "dbExplainer.ai.maxTokens": {
@@ -503,7 +506,7 @@
     "@types/vscode": "1.90.0",
     "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.9.2",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.25.0",
     "playwright-core": "^1.50.0",
     "typescript": "^5.5.4",
     "vitest": "^2.1.8"

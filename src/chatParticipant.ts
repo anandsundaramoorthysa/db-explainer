@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { abortOn } from './ai/cancel';
 import { detectApiKey } from './ai/keyScan';
 import { Conversation } from './chat/conversation';
 import { SourceManager } from './sources';
@@ -13,7 +14,7 @@ export interface ParticipantDeps {
 
 /** @dex in Copilot Chat: the same answers as the DB Explainer panel, with the same checks and the same privacy. */
 export function registerDex(context: vscode.ExtensionContext, deps: ParticipantDeps): void {
-  const handler: vscode.ChatRequestHandler = async (request, chatContext, stream) => {
+  const handler: vscode.ChatRequestHandler = async (request, chatContext, stream, token) => {
     // A new Copilot chat starts a new conversation here too.
     if (!chatContext.history.length) deps.conversation.reset();
     const source = deps.sources.active();
@@ -34,12 +35,16 @@ export function registerDex(context: vscode.ExtensionContext, deps: ParticipantD
       return;
     }
     stream.progress(`Looking at ${source.label}...`);
+    const abort = abortOn(token);
     try {
-      const a = await deps.conversation.ask(source, request.prompt, undefined, { draft: () => undefined, checking: () => stream.progress('Checking the answer...') });
+      const a = await deps.conversation.ask(source, request.prompt, undefined, { draft: () => undefined, checking: () => stream.progress('Checking the answer...'), signal: abort.signal });
       stream.markdown(a.text);
       if (a.sql.length && source.connector) stream.button({ command: 'dbExplainer.openChat', title: 'Open DB Explainer to run it' });
     } catch (e) {
+      if (abort.signal.aborted) return;
       stream.markdown(`DB Explainer could not answer: ${(e as Error).message}`);
+    } finally {
+      abort.dispose();
     }
   };
   const dex = vscode.chat.createChatParticipant('dbExplainer.dex', handler);

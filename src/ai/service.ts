@@ -5,7 +5,7 @@ import { describeExpiry, keysOf, keyStatus, modelsOf, preset, Profile, ProfileSt
 /** Copilot through VS Code. Kept behind this shape so the service needs no vscode import and can be tested. */
 export interface CopilotBridge {
   models(): Promise<string[]>;
-  chat(model: string, messages: ChatMessage[], onText?: (soFar: string) => void): Promise<string>;
+  chat(model: string, messages: ChatMessage[], onText?: (soFar: string) => void, signal?: AbortSignal): Promise<string>;
 }
 
 export interface ServiceDeps {
@@ -33,6 +33,19 @@ const FALLBACK_CODES = new Set(['auth', 'rate', 'server']);
 
 /** The answers that mean "this key cannot help right now, another key might". A server fault would hit every key alike. */
 const NEXT_KEY_CODES = new Set(['auth', 'rate']);
+
+/**
+ * A replacement to suggest when `id` is not in the service's list, or undefined when it is listed (also as "name:latest", with a
+ * "models/" prefix, or as a longer id that starts with it, such as a dated version). Pure: nothing is saved.
+ */
+export function suggestModel(id: string, listed: string[]): string | undefined {
+  const names = listed.map((m) => m.replace(/^models\//, ''));
+  const name = id.trim().replace(/^models\//, '');
+  if (!name || !names.length) return undefined;
+  const bare = (m: string): string => m.replace(/:latest$/, '');
+  if (names.some((m) => bare(m) === bare(name) || m.startsWith(name + '-') || m.startsWith(name + ':'))) return undefined;
+  return replacementsFor(name, [], names, 1)[0];
+}
 
 function who(p: Profile): string {
   return `${preset(p.provider).name} "${p.label}"`;
@@ -63,8 +76,8 @@ export class AiService {
     return { baseUrl: p.baseUrl, model: p.model, maxTokens: base.maxTokens, maxTokensParam: preset(p.provider).maxTokensParam ?? base.maxTokensParam };
   }
 
-  private opts(p: Profile, onText?: (soFar: string) => void) {
-    return { fetchFn: this.deps.fetchFn, headers: preset(p.provider).headers, onText };
+  private opts(p: Profile, onText?: (soFar: string) => void, signal?: AbortSignal) {
+    return { fetchFn: this.deps.fetchFn, headers: preset(p.provider).headers, onText, signal };
   }
 
   /** Why a profile must not be used, or undefined if it can be. An expired key is never sent anywhere. */
@@ -90,14 +103,14 @@ export class AiService {
    * Tries the profile's valid keys in turn, moving on when one is refused or rate limited. Every key goes only to this profile's own
    * address, so nothing reaches a new service. The key that worked is remembered, so a dead key is not tried first next time.
    */
-  private async askProfile(p: Profile, messages: ChatMessage[], onText?: (soFar: string) => void): Promise<string> {
+  private async askProfile(p: Profile, messages: ChatMessage[], onText?: (soFar: string) => void, signal?: AbortSignal): Promise<string> {
     const { store } = this.deps;
     if (p.provider === 'vscode') {
       try {
-        return await this.deps.copilot!.chat(p.model, messages, onText);
+        return await this.deps.copilot!.chat(p.model, messages, onText, signal);
       } catch (e) {
         if (!(e instanceof AiError) || e.code !== 'model') throw e;
-        const reply = await this.replaceModel(p, undefined, messages, onText);
+        const reply = await this.replaceModel(p, undefined, messages, onText, signal);
         if (reply !== undefined) return reply;
         throw new AiError(`${e.message} No other Copilot model answered either.`, 'model');
       }
@@ -110,7 +123,7 @@ export class AiService {
     let lastFailure: AiError | undefined;
     for (const k of attempts) {
       try {
-        const reply = await chat(this.config(p), k.key, messages, this.opts(p, onText));
+        const reply = await chat(this.config(p), k.key, messages, this.opts(p, onText, signal));
         if (usable.length && k.id !== current) {
           await store.setCurrentKey(p.id, k.id);
           const all = keysOf(p);
@@ -119,14 +132,14 @@ export class AiService {
         }
         return reply;
       } catch (e) {
-        if (!(e instanceof AiError)) throw e;
+        if (!(e instanceof AiError) || signal?.aborted) throw e;
         if (e.code === 'auth') refused++;
         lastFailure = e;
         if (NEXT_KEY_CODES.has(e.code) && k !== attempts[attempts.length - 1]) continue;
         if (FALLBACK_CODES.has(e.code)) throw new AiError(explain(p, e, refused), e.code, e.status, e.retryAfter);
         if (e.code === 'model') {
           // A retired model is not the developer's problem: find one that works, and keep it.
-          const reply = await this.replaceModel(p, k.key, messages, onText);
+          const reply = await this.replaceModel(p, k.key, messages, onText, signal);
           if (reply !== undefined) return reply;
           throw new AiError(`${who(p)}: ${e.message} No other model it offers answered either. Pick one in "DB Explainer: Manage AI Keys".`, 'model', e.status);
         }
@@ -150,16 +163,17 @@ export class AiService {
    * The model in use is gone. Tries the saved models the service still offers, then its other models, best first, and keeps the
    * first that answers as the model in use, dropping the dead one from the saved list. Undefined if none answers.
    */
-  private async replaceModel(p: Profile, key: string | undefined, messages: ChatMessage[], onText?: (soFar: string) => void): Promise<string | undefined> {
+  private async replaceModel(p: Profile, key: string | undefined, messages: ChatMessage[], onText?: (soFar: string) => void, signal?: AbortSignal): Promise<string | undefined> {
     const candidates = replacementsFor(p.model, modelsOf(p), await this.offered(p, key));
     for (const model of candidates) {
       try {
-        const reply = p.provider === 'vscode' ? await this.deps.copilot!.chat(model, messages, onText) : await chat({ ...this.config(p), model }, key, messages, this.opts(p, onText));
+        const reply = p.provider === 'vscode' ? await this.deps.copilot!.chat(model, messages, onText, signal) : await chat({ ...this.config(p), model }, key, messages, this.opts(p, onText, signal));
         await this.keepModel(p.id, p.model, model);
         this.deps.notice(`${who(p)}: "${p.model}" is no longer available, so DB Explainer switched to "${model}" and will use it from now on.`);
         return reply;
       } catch (e) {
         if (e instanceof AiError && e.code === 'model') continue;
+        if (e instanceof AiError && FALLBACK_CODES.has(e.code) && !signal?.aborted) throw new AiError(explain(p, e), e.code, e.status, e.retryAfter);
         throw e;
       }
     }
@@ -174,27 +188,14 @@ export class AiService {
     await this.deps.store.save({ ...next, models: modelsOf(next).filter((m) => m !== dead) });
   }
 
-  /**
-   * After a check lists the service's models: if the model in use is not among them, the best one offered takes its place.
-   * Returns the model chosen, or undefined when nothing needed to change.
-   */
-  async adoptOfferedModel(id: string, listed: string[]): Promise<string | undefined> {
-    const p = this.deps.store.get(id);
-    if (!p || !listed.length || listed.includes(p.model)) return undefined;
-    const [best] = replacementsFor(p.model, modelsOf(p), listed, 1);
-    if (!best) return undefined;
-    await this.keepModel(id, p.model, best);
-    return best;
-  }
-
-  async chat(messages: ChatMessage[], onText?: (soFar: string) => void): Promise<string> {
+  async chat(messages: ChatMessage[], onText?: (soFar: string) => void, signal?: AbortSignal): Promise<string> {
     const { store } = this.deps;
     const all = store.list();
     if (!all.length) {
       const cfg = this.deps.legacy();
       normalizeBaseUrl(cfg.baseUrl, false);
       await this.deps.allowHost(cfg.baseUrl);
-      return chat(cfg, await this.deps.legacyKey(), messages, { fetchFn: this.deps.fetchFn, onText });
+      return chat(cfg, await this.deps.legacyKey(), messages, { fetchFn: this.deps.fetchFn, onText, signal });
     }
 
     const active = store.active() ?? all[0];
@@ -217,7 +218,7 @@ export class AiService {
         continue;
       }
       try {
-        const reply = await this.askProfile(p, messages, onText);
+        const reply = await this.askProfile(p, messages, onText, signal);
         if (failures.length) this.deps.notice(`${failures.map((f) => f.message).join(' ')} This answer came from ${who(p)}.`);
         return reply;
       } catch (e) {

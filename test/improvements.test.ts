@@ -95,6 +95,7 @@ describe('streaming', () => {
           c.enqueue(encoder.encode(`data: ${piece(t)}\n\n`));
           await new Promise((r) => setTimeout(r, 40));
         }
+        c.enqueue(encoder.encode('data: [DONE]\n\n'));
         c.close();
       },
     });

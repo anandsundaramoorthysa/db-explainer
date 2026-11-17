@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.1
+
+Security
+
+- **Pasted connection strings now ask about encryption.** A connection string for a server that is not on your computer, with no ssl or sslmode in it, used to connect without encryption and without asking, so the password crossed the network in plain text. It now asks the same question as the step-by-step Add flow. A string that says ssl one way or the other is respected.
+- **A project cannot redirect your AI settings.** `dbExplainer.ai.baseUrl`, `dbExplainer.ai.model` and `dbExplainer.ai.fallback` can now only be set in your own user settings, so a cloned repository's `.vscode/settings.json` can no longer point an old saved key at another service. The "allow this service" message now says the saved API key goes to it too.
+- **Check speed no longer sends a key.** A query with an API key in it is stopped the same way a key typed in the chat is, in every place SQL is sent to the AI.
+- **Security updates to the build tools.** esbuild 0.24 to 0.25 and fast-uri 3.1.8 to 3.1.9, which fix known advisories. They are used only to build the extension and are not shipped in it as separate files.
+
+Fixed
+
+- **Fewer paid retries.** Only a reply that really says the model is missing or retired (a 404, or the service's own words such as "does not exist" or "decommissioned") starts the replace-the-model search. Errors about token limits, context length or unsupported settings no longer do, so they cannot trigger extra requests or change the saved model.
+- **Your saved model is not replaced when you press Test or Save.** If it is not in the service's list (aliases such as `llama3.2` for `llama3.2:latest` often are not), you are told and offered a suggestion, and nothing is changed. A retired model is still replaced when a question actually fails because the model is gone, and the replacement is now the closest model of the same family and size, not the largest.
+- **Edits made while a confirmation was open are kept.** Moving a profile to another host no longer overwrites a key rotation, an added key or a model change made in the meantime, and a profile deleted in the meantime is not brought back.
+- **A stalled stream now times out.** A server that only sends keep-alive pings no longer holds the answer open past the 60 second limit, and the connection is released when an answer ends or fails.
+- **A cut-off answer is no longer shown as finished.** If a stream stops without its end marker, you get an error instead of half an answer.
+- **Cancelling in Copilot Chat stops the request.** `@dex` now cancels the AI call, retries nothing and spends no more quota.
+
 ## 1.2.0
 
 New

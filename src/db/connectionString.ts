@@ -71,3 +71,8 @@ export function splitHostPort(text: string, fallbackPort: number): { host: strin
 export function isLocalHost(host: string): boolean {
   return ['localhost', '127.0.0.1', '::1', '[::1]', '(local)', '.'].includes(host.toLowerCase());
 }
+
+/** Ask about TLS only for a remote host when the connection string did not say ssl either way. */
+export function tlsQuestionNeeded(host: string, ssl: boolean | undefined): boolean {
+  return ssl === undefined && !isLocalHost(host);
+}

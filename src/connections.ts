@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { DEFAULT_PORT, isLocalHost, parseConnectionString, splitHostPort } from './db/connectionString';
+import { DEFAULT_PORT, isLocalHost, parseConnectionString, splitHostPort, tlsQuestionNeeded } from './db/connectionString';
 import { ConnectionProfile, DbEngine, ENGINE_LABEL } from './types';
 
 const PROFILES_KEY = 'dbExplainer.connections';
@@ -62,7 +62,13 @@ async function connectionFromString(): Promise<{ profile: ConnectionProfile; pas
   if (!user) return undefined;
   const password = c.password ?? (await vscode.window.showInputBox({ title: 'Add a database connection', prompt: PASSWORD_PROMPT, password: true, ignoreFocusOut: true }));
   if (password === undefined) return undefined;
-  return { profile: { id: newId(), name: `${c.database}@${c.host}`, engine: c.engine, host: c.host, port: c.port, database: c.database, user, ...(c.ssl === undefined ? {} : { ssl: c.ssl }), ...(c.tlsVerify === false ? { tlsVerify: false } : {}) }, password };
+  let ssl = c.ssl;
+  if (tlsQuestionNeeded(c.host, ssl)) {
+    const tls = await vscode.window.showQuickPick([{ label: 'Yes, encrypt the connection', value: true }, { label: 'No', value: false }], { title: 'Add a database connection', placeHolder: 'This server is not on your computer. Encrypt the connection (TLS)?' });
+    if (!tls) return undefined;
+    ssl = tls.value;
+  }
+  return { profile: { id: newId(), name: `${c.database}@${c.host}`, engine: c.engine, host: c.host, port: c.port, database: c.database, user, ...(ssl === undefined ? {} : { ssl }), ...(c.tlsVerify === false ? { tlsVerify: false } : {}) }, password };
 }
 
 /** Asks only for what it cannot work out. Returns undefined if the developer cancels. */

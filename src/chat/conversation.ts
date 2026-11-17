@@ -35,10 +35,12 @@ export interface Progress {
   draft: (soFar: string) => void;
   /** The first reply is complete and is now being checked. */
   checking: () => void;
+  /** Aborts the AI calls. Nothing is retried or repaired after it fires. */
+  signal?: AbortSignal;
 }
 
 export interface Deps {
-  ai: (messages: ChatMessage[], onText?: (soFar: string) => void) => Promise<string>;
+  ai: (messages: ChatMessage[], onText?: (soFar: string) => void, signal?: AbortSignal) => Promise<string>;
   notes: () => string;
   limits: () => QueryLimits;
   maxTables: () => number;
@@ -103,17 +105,18 @@ export class Conversation {
     };
     const pastedQuery = pastedSql(question);
     const pasted = pastedQuery ? lintSql(source.model, pastedQuery, nullCounts) : [];
-    let text = await this.deps.ai(messages, progress?.draft);
+    let text = await this.deps.ai(messages, progress?.draft, progress?.signal);
     progress?.checking();
     // A model can ignore the rules it was given. If the answer has problems the schema can reveal, or the database refuses the
     // query when asked to plan it, ask the model once to fix them.
     const check = async (reply: string): Promise<string[]> => [...answerProblems(source.model, asked, reply, extractSql(reply), pasted, nullCounts), ...(sample ? [] : await this.rejectedByDatabase(source, extractSql(reply)))];
     const problems = await check(text);
-    if (problems.length && !sample) {
+    if (problems.length && !sample && !progress?.signal?.aborted) {
       try {
-        const again = await this.deps.ai([...messages, { role: 'assistant', content: text }, { role: 'user', content: repairRequest(problems) }]);
+        const again = await this.deps.ai([...messages, { role: 'assistant', content: text }, { role: 'user', content: repairRequest(problems) }], undefined, progress?.signal);
         if ((await check(again)).length <= problems.length) text = again;
-      } catch {
+      } catch (e) {
+        if (progress?.signal?.aborted) throw e;
         // The first answer is still good enough to show.
       }
     }

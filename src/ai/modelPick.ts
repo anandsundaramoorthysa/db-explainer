@@ -28,9 +28,15 @@ export function rankModels(ids: string[]): string[] {
  * The models to try, in order, when `current` is gone: the developer's own saved models that the service still offers, then the
  * service's other models, best first. With no list from the service, only the saved ones.
  */
-export function replacementsFor(current: string, saved: string[], listed: string[], max = 6): string[] {
+export function replacementsFor(current: string, saved: string[], listed: string[], max = 3): string[] {
   const offered = new Set(listed.map((m) => m.replace(/^models\//, '')));
   const own = saved.filter((m) => m !== current && (!offered.size || offered.has(m)));
-  const rest = rankModels(listed).filter((m) => m !== current && !own.includes(m));
+  // Closest to the retired name first (same family and size), so a cheap model is not swapped for the costliest one. Then the score.
+  const near = (m: string): number => {
+    let n = 0;
+    while (n < m.length && n < current.length && m[n].toLowerCase() === current[n].toLowerCase()) n++;
+    return n;
+  };
+  const rest = rankModels(listed).filter((m) => m !== current && !own.includes(m)).map((m, i) => ({ m, i, n: near(m) })).sort((a, b) => b.n - a.n || a.i - b.i).map((x) => x.m);
   return [...own, ...rest].slice(0, max);
 }

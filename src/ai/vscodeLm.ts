@@ -14,12 +14,15 @@ export function vscodeCopilot(timeoutMs = 60000): CopilotBridge & { onChange: (f
       }
     },
     onChange: (fn) => vscode.lm.onDidChangeChatModels(fn),
-    async chat(model: string, messages: ChatMessage[], onText?: (soFar: string) => void): Promise<string> {
+    async chat(model: string, messages: ChatMessage[], onText?: (soFar: string) => void, signal?: AbortSignal): Promise<string> {
+      if (signal?.aborted) throw new AiError('Cancelled.', 'config');
       const [m] = await select(model);
       if (!m) throw new AiError(`Copilot has no model called "${model}" any more.`, 'model');
       // These models take no system message, so the instructions go first as the developer's own words.
       const turns = messages.map((x) => (x.role === 'assistant' ? vscode.LanguageModelChatMessage.Assistant(x.content) : vscode.LanguageModelChatMessage.User(x.role === 'system' ? `Instructions for this conversation:\n${x.content}` : x.content)));
       const cancel = new vscode.CancellationTokenSource();
+      const stop = (): void => cancel.cancel();
+      signal?.addEventListener('abort', stop);
       let timedOut = false;
       let timer = setTimeout(() => ((timedOut = true), cancel.cancel()), timeoutMs);
       try {
@@ -34,6 +37,7 @@ export function vscodeCopilot(timeoutMs = 60000): CopilotBridge & { onChange: (f
         if (!text.trim()) throw new AiError('Copilot returned an empty answer.', 'empty');
         return text.trim();
       } catch (e) {
+        if (signal?.aborted) throw new AiError('Cancelled.', 'config');
         if (e instanceof AiError) throw e;
         if (timedOut) throw new AiError('Copilot took too long to answer.', 'timeout');
         const code = String((e as { code?: unknown }).code ?? '');
@@ -43,6 +47,7 @@ export function vscodeCopilot(timeoutMs = 60000): CopilotBridge & { onChange: (f
         throw new AiError(`Copilot could not answer: ${(e as Error).message ?? e}`, 'server');
       } finally {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', stop);
         cancel.dispose();
       }
     },

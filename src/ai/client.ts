@@ -32,11 +32,23 @@ export interface AiOptions {
   headers?: Record<string, string>;
   /** Called with the reply so far as it arrives. Without it the whole reply is waited for. */
   onText?: (soFar: string) => void;
+  /** Aborts the request. The answer is then a 'Cancelled.' error and nothing is retried. */
+  signal?: AbortSignal;
 }
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 const CHECK_SETTINGS = 'Check the address and model in "DB Explainer: Manage AI Keys".';
+
+const cancelled = (): AiError => new AiError('Cancelled.', 'config');
+
+/** The service's own words saying the model is missing or retired, and not a complaint about a parameter or a limit. */
+const MODEL_GONE = /model[^\n]{0,80}(not[ _]found|does not exist|doesn't exist|unknown|invalid model|decommission|deprecat|retired|no longer (available|supported))|(not[ _]found|does not exist|doesn't exist|unknown|invalid model|decommission|deprecat|retired|no longer (available|supported))[^\n]{0,80}model/i;
+const NOT_MODEL = /max_tokens|max_completion_tokens|token|context length|context window|temperature|unsupported parameter|not supported with this model/i;
+
+export function modelIsGone(status: number | undefined, serviceText: string): boolean {
+  return status === 404 || ((status === 400 || status === 410) && MODEL_GONE.test(serviceText) && !NOT_MODEL.test(serviceText));
+}
 
 export function isLocalUrl(raw: string): boolean {
   try {
@@ -77,6 +89,9 @@ async function send<T>(url: string, init: RequestInit, opts: AiOptions, read: (r
   const controller = new AbortController();
   const wait = opts.timeoutMs ?? 60000;
   let timer = setTimeout(() => controller.abort(), wait);
+  const onAbort = (): void => controller.abort();
+  if (opts.signal?.aborted) throw cancelled();
+  opts.signal?.addEventListener('abort', onAbort);
   // A streamed reply may take a long time overall, so its limit counts from the last text received.
   const stillAlive = (): void => {
     clearTimeout(timer);
@@ -98,11 +113,15 @@ async function send<T>(url: string, init: RequestInit, opts: AiOptions, read: (r
     }
     return await read(res, stillAlive);
   } catch (e) {
+    if (opts.signal?.aborted) throw cancelled();
     if (e instanceof AiError) throw e;
     if ((e as Error)?.name === 'AbortError') throw new AiError('The AI service took too long to answer.', 'timeout');
     throw new AiError('Could not reach the AI service. Check your connection and the base URL.', 'network');
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onAbort);
+    // Releases the connection, so a server still writing stops.
+    controller.abort();
   }
 }
 
@@ -116,9 +135,15 @@ async function readStream(res: Response, stillAlive: () => void, onText: (soFar:
   const decoder = new TextDecoder();
   let pending = '';
   let text = '';
+  // A stream cut by a proxy ends with neither of these.
+  let finished = false;
   const line = (raw: string): void => {
     const data = raw.trim().replace(/^data:\s*/, '');
-    if (!raw.trim().startsWith('data:') || data === '[DONE]') return;
+    if (!raw.trim().startsWith('data:')) return;
+    if (data === '[DONE]') {
+      finished = true;
+      return;
+    }
     let json: any;
     try {
       json = JSON.parse(data);
@@ -126,8 +151,13 @@ async function readStream(res: Response, stillAlive: () => void, onText: (soFar:
       return; // A keep-alive or a partial line from an unusual server. Whatever follows still counts.
     }
     if (json?.error) throw new AiError(`The AI service reported a problem: ${String(json.error.message ?? json.error).slice(0, 200)}`, 'server');
-    const piece = plainText(json?.choices?.[0]?.delta?.content);
+    if (json?.choices?.[0]?.finish_reason) finished = true;
+    const delta = json?.choices?.[0]?.delta;
+    // A reasoning model may think for a long while before the answer starts. That is progress, but not part of the answer.
+    for (const thought of [delta?.reasoning_content, delta?.reasoning]) if (typeof thought === 'string' && thought) stillAlive();
+    const piece = plainText(delta?.content);
     if (typeof piece === 'string' && piece) {
+      stillAlive();
       text += piece;
       onText(text);
     }
@@ -135,13 +165,13 @@ async function readStream(res: Response, stillAlive: () => void, onText: (soFar:
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    stillAlive();
     pending += decoder.decode(value, { stream: true });
     const lines = pending.split('\n');
     pending = lines.pop() ?? '';
     lines.forEach(line);
   }
   if (pending) line(pending);
+  if (!finished) throw new AiError('The AI service stopped sending in the middle of the answer. Try again.', 'server');
   return text;
 }
 
@@ -163,9 +193,10 @@ export async function chat(cfg: AiConfig, key: string | undefined, messages: Cha
       }
     });
   } catch (e) {
+    if (opts.signal?.aborted) throw e;
     if (e instanceof AiError && e.code === 'config' && e.status === 400 && onText && /stream/i.test(e.message)) return chat(cfg, key, messages, { ...opts, onText: undefined });
     // Only the service's own words count here: our advice in the same message also says "model".
-    if (e instanceof AiError && e.code === 'config' && (e.status === 404 || (e.status === 400 && /model/i.test(e.message.replace(CHECK_SETTINGS, ''))))) {
+    if (e instanceof AiError && e.code === 'config' && modelIsGone(e.status, e.message.replace(CHECK_SETTINGS, ''))) {
       throw new AiError(`The AI service cannot find the model "${cfg.model.trim()}". It may have been retired, or the address may be wrong.`, 'model', e.status);
     }
     throw e;

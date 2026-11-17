@@ -177,15 +177,20 @@ export class ChatPanel {
     };
   }
 
+  /** True when the text holds an API key: nothing is sent, and the key goes to the key flow instead. */
+  private keyBlocked(text: string, redact: boolean): boolean {
+    const found = detectApiKey(text);
+    if (!found) return false;
+    // Only when the page already echoed what was typed. From the editor nothing was echoed, and the last message is someone else's.
+    if (redact) this.post({ type: 'redactLast', text: '[API key removed. It was not sent.]' });
+    this.post({ type: 'notice', text: 'That looked like an API key, so it was not sent to the AI or kept in the conversation.' });
+    this.hooks.keyPasted(found);
+    return true;
+  }
+
   private async ask_(text: string): Promise<void> {
     // First of all, before the busy check, the history or the AI service: a pasted key goes nowhere.
-    const found = detectApiKey(text);
-    if (found) {
-      this.post({ type: 'redactLast', text: '[API key removed. It was not sent.]' });
-      this.post({ type: 'notice', text: 'That looked like an API key, so it was not sent to the AI or kept in the conversation.' });
-      this.hooks.keyPasted(found);
-      return;
-    }
+    if (this.keyBlocked(text, true)) return;
     const source = this.sources.active();
     if (!text.trim() || this.busy) return;
     if (!source) {
@@ -207,6 +212,7 @@ export class ChatPanel {
 
   /** "Why is this slow?": from the button under a query, or from the editor. */
   async checkSpeed(sql: string): Promise<void> {
+    if (this.keyBlocked(sql, false)) return;
     const source = this.sources.active();
     if (!sql.trim() || this.busy || !source) return;
     if (!this.ready) await new Promise<void>((resolve) => setTimeout(resolve, 300));

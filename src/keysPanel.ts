@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AiConfig, isLocalUrl } from './ai/client';
 import { AddressChoice, saveProfileForm } from './ai/profileForm';
-import { AiService } from './ai/service';
+import { AiService, suggestModel } from './ai/service';
 import { describeExpiry, describeKeyExpiry, isValidDate, keysOf, keyStatus, maskKey, modelsOf, preset, PRESETS, ProfileStore, Provider, statusOf, withModel } from './ai/profiles';
 import { addAndCheckKeys } from './changeKey';
 
@@ -260,10 +260,10 @@ export class KeysPanel {
     void this.panel.webview.postMessage({ type: 'testing', id });
     const r = await this.deps.service.test(id);
     if (r.models.length) this.fetched.set(id, r.models);
-    // The suggested model may be gone by now. Rather than leave a model that will fail, take the best one the service offers.
+    // Only reports: an alias may be missing from the list and still work, so nothing is changed here.
     const was = this.deps.store.get(id)?.model;
-    const chosen = r.ok ? await this.deps.service.adoptOfferedModel(id, r.models) : undefined;
-    await this.showTest(id, r.ok, chosen ? `The service answered. "${was}" is not offered any more, so "${chosen}" was picked for you. You can change it under Saved models.` : r.message);
+    const suggestion = r.ok && was ? suggestModel(was, r.models) : undefined;
+    await this.showTest(id, r.ok, suggestion ? `${r.message} "${was}" is not in the service's list. Did you mean "${suggestion}"? Nothing was changed.` : r.message);
   }
 
   private async save(m: Inbound): Promise<void> {

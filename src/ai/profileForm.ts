@@ -35,6 +35,22 @@ function hostOf(url: string): string | undefined {
   }
 }
 
+/** The form changes only these fields. Everything else comes from the latest saved profile, so edits made meanwhile survive. */
+export function editedProfile(latest: Profile | undefined, f: { label: string; provider: Provider; baseUrl: string; model: string; expiresAt: string }): Profile {
+  return {
+    id: latest?.id ?? newProfileId(),
+    label: f.label,
+    provider: f.provider,
+    baseUrl: f.baseUrl,
+    model: f.model,
+    ...(f.expiresAt ? { expiresAt: f.expiresAt } : {}),
+    // The form edits the first key only. The other keys and saved models stay as they are.
+    ...(latest?.extraKeys ? { extraKeys: latest.extraKeys } : {}),
+    ...(latest?.currentKeyId ? { currentKeyId: latest.currentKeyId } : {}),
+    ...(latest ? { models: modelsOf(withModel(latest, f.model)) } : {}),
+  };
+}
+
 /** Saves the form. Returns the profile id, or the reason to show on the form. */
 export async function saveProfileForm(store: ProfileStore, m: ProfileInput, opts: FormOptions): Promise<{ id: string } | { error: string }> {
   const existing = m.id ? store.get(m.id) : undefined;
@@ -46,7 +62,9 @@ export async function saveProfileForm(store: ProfileStore, m: ProfileInput, opts
     if (!model) return { error: 'Pick a Copilot model.' };
     const id = existing?.id ?? newProfileId();
     if (existing) for (const k of [...keysOf(existing)].reverse()) await store.removeKey(id, k.id);
-    const base = existing ? modelsOf(withModel(existing, model)) : [model];
+    const latest = existing ? store.get(existing.id) : undefined;
+    if (existing && !latest) return { error: 'This profile was deleted while the form was open, so nothing was saved.' };
+    const base = latest ? modelsOf(withModel(latest, model)) : [model];
     await store.save({ id, label, provider, baseUrl: COPILOT_ADDRESS, model, models: base });
     return { id };
   }
@@ -74,30 +92,28 @@ export async function saveProfileForm(store: ProfileStore, m: ProfileInput, opts
   // Saved keys belong to the service they were made for, so moving the address is a decision and not a side effect of an edit.
   let dropKeys: string[] = [];
   if (existing && hostOf(existing.baseUrl) !== hostOf(baseUrl)) {
-    const moving: string[] = [];
-    for (const k of keysOf(existing)) {
-      const replaced = k.id === PRIMARY_KEY && typed.length > 0;
-      if (!replaced && (await store.key(existing.id, k.id))) moving.push(k.id);
-    }
+    const movingKeys = async (): Promise<string[]> => {
+      const moving: string[] = [];
+      for (const k of keysOf(store.get(existing.id) ?? existing)) {
+        const replaced = k.id === PRIMARY_KEY && typed.length > 0;
+        if (!replaced && (await store.key(existing.id, k.id))) moving.push(k.id);
+      }
+      return moving;
+    };
+    const moving = await movingKeys();
     if (moving.length) {
       const choice = await opts.confirmAddress(hostOf(baseUrl) ?? baseUrl, moving.length);
       if (!choice) return { error: 'The address was not changed, and neither was anything else.' };
+      // A key added while the modal was open was not part of the answer, so it never moves silently.
+      if ((await movingKeys()).some((id) => !moving.includes(id))) return { error: 'A key was added while you were deciding, so nothing was saved. Save again to confirm the new key list.' };
       if (choice === 'remove') dropKeys = moving;
     }
   }
 
-  const profile: Profile = {
-    id: existing?.id ?? newProfileId(),
-    label,
-    provider,
-    baseUrl,
-    model,
-    ...(expiresAt ? { expiresAt } : {}),
-    // The form edits the first key only. The other keys and saved models stay as they are.
-    ...(existing?.extraKeys ? { extraKeys: existing.extraKeys } : {}),
-    ...(existing?.currentKeyId ? { currentKeyId: existing.currentKeyId } : {}),
-    ...(existing ? { models: modelsOf(withModel(existing, model)) } : {}),
-  };
+  // The modal above may have been open for a while. Start from the profile as it is now, and never bring back a deleted one.
+  const latest = existing ? store.get(existing.id) : undefined;
+  if (existing && !latest) return { error: 'This profile was deleted while the form was open, so nothing was saved.' };
+  const profile = editedProfile(latest, { label, provider, baseUrl, model, expiresAt });
   await store.save(profile, first);
   // Extra keys first: removing the first key moves the next one into its place.
   for (const id of [...dropKeys].reverse()) await store.removeKey(profile.id, id);

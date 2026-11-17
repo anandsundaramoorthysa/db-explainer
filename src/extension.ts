@@ -58,7 +58,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const allowed = context.globalState.get<string[]>(HOSTS_KEY, []);
     if (allowed.includes(host)) return;
     const pick = await vscode.window.showWarningMessage(
-      `DB Explainer will send your table and column names, your notes and your questions to ${host}. Row values are never sent unless you press "Let the AI see these rows".`,
+      `DB Explainer will send your table and column names, your notes and your questions, and the API key saved for it, to ${host}. Row values are never sent unless you press "Let the AI see these rows".`,
       { modal: true },
       'Allow',
     );
@@ -100,8 +100,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // A rejected key is fixed in one click from the message itself. Shown at most every 30 seconds, since one question can fail twice.
   let lastToast = 0;
   const convDeps: Deps = {
-    ai: (messages, onText) =>
-      ai.chat(messages, onText).catch((e) => {
+    ai: (messages, onText, signal) =>
+      ai.chat(messages, onText, signal).catch((e) => {
         // A retired model is also fixed in one click: each button makes that saved model the one in use.
         const inUse = profiles.active();
         if (e instanceof AiError && e.code === 'model' && inUse && Date.now() - lastToast > 30_000) {
